@@ -11,6 +11,7 @@ const app = express();
 
 // Simple bounded in-memory caches so repeated tile/OSM requests are instantaneous
 const osmCache = new Map<string, { payload: unknown; timestamp: number }>();
+const inFlightOsm = new Map<string, Promise<unknown>>();
 const tileCache = new Map<string, { buffer: Buffer; contentType: string }>();
 const MAX_TILE_CACHE = 1200;
 const MAX_OSM_CACHE = 64;
@@ -285,33 +286,33 @@ app.get('/api/geo/osm', async (req, res) => {
     return;
   }
 
-  let lastErr = 'OSM request failed';
+  let pending = inFlightOsm.get(cacheKey);
+  if (!pending) {
+    pending = (async () => {
+      let lastErr = 'OSM request failed';
 
-  // Primary: Official OpenStreetMap 0.6 REST API (fast, ~2s per 1 km x 1 km tile)
-  try {
-    const elements = await fetchOsm06BBox(south, west, north, east);
-    const parsed = parseOverpassJson(elements);
-    const payload = {
-      bbox: { south, west, north, east },
-      source: 'https://api.openstreetmap.org/api/0.6/map.json',
-      fetchedAt: new Date().toISOString(),
-      ...parsed,
-    };
+      // Primary: Official OpenStreetMap 0.6 REST API (fast, ~1-2s per 1 km x 1 km tile)
+      try {
+        const elements = await fetchOsm06BBox(south, west, north, east);
+        const parsed = parseOverpassJson(elements);
+        const payload = {
+          bbox: { south, west, north, east },
+          source: 'https://api.openstreetmap.org/api/0.6/map.json',
+          fetchedAt: new Date().toISOString(),
+          ...parsed,
+        };
+        if (osmCache.size >= MAX_OSM_CACHE) {
+          const firstKey = osmCache.keys().next().value;
+          if (firstKey) osmCache.delete(firstKey);
+        }
+        osmCache.set(cacheKey, { payload, timestamp: Date.now() });
+        return payload;
+      } catch (err) {
+        lastErr = err instanceof Error ? err.message : String(err);
+      }
 
-    if (osmCache.size >= MAX_OSM_CACHE) {
-      const firstKey = osmCache.keys().next().value;
-      if (firstKey) osmCache.delete(firstKey);
-    }
-    osmCache.set(cacheKey, { payload, timestamp: Date.now() });
-    res.setHeader('X-Cache', 'MISS');
-    res.json(payload);
-    return;
-  } catch (err) {
-    lastErr = err instanceof Error ? err.message : String(err);
-  }
-
-  // Secondary fallback: Overpass mirrors
-  const query = `[out:json][timeout:14];
+      // Secondary fallback: Overpass mirrors
+      const query = `[out:json][timeout:14];
 (
   way["building"](${south},${west},${north},${east});
   way["highway"~"^(trunk|primary|secondary|tertiary|unclassified|residential|trunk_link|primary_link)$"](${south},${west},${north},${east});
@@ -322,50 +323,63 @@ out body;
 >;
 out skel qt;`;
 
-  for (const endpoint of OVERPASS_ENDPOINTS) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'User-Agent': 'TagumCity3DWorkbench/1.0 (+https://tagum3d.local)',
-        },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
+      for (const endpoint of OVERPASS_ENDPOINTS) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+              'User-Agent': 'TagumCity3DWorkbench/1.0 (+https://tagum3d.local)',
+            },
+            body: `data=${encodeURIComponent(query)}`,
+            signal: controller.signal,
+          });
+          clearTimeout(timer);
 
-      if (!response.ok) {
-        lastErr = `${endpoint} returned HTTP ${response.status}`;
-        continue;
+          if (!response.ok) {
+            lastErr = `${endpoint} returned HTTP ${response.status}`;
+            continue;
+          }
+
+          const data = (await response.json()) as { elements?: RawOverpassElement[] };
+          const parsed = parseOverpassJson(data.elements ?? []);
+          const payload = {
+            bbox: { south, west, north, east },
+            source: endpoint,
+            fetchedAt: new Date().toISOString(),
+            ...parsed,
+          };
+
+          if (osmCache.size >= MAX_OSM_CACHE) {
+            const firstKey = osmCache.keys().next().value;
+            if (firstKey) osmCache.delete(firstKey);
+          }
+          osmCache.set(cacheKey, { payload, timestamp: Date.now() });
+          return payload;
+        } catch (err) {
+          clearTimeout(timer);
+          lastErr = err instanceof Error ? err.message : String(err);
+        }
       }
 
-      const data = (await response.json()) as { elements?: RawOverpassElement[] };
-      const parsed = parseOverpassJson(data.elements ?? []);
-      const payload = {
-        bbox: { south, west, north, east },
-        source: endpoint,
-        fetchedAt: new Date().toISOString(),
-        ...parsed,
-      };
+      throw new Error(`Failed to fetch live OSM data (${lastErr})`);
+    })();
 
-      if (osmCache.size >= MAX_OSM_CACHE) {
-        const firstKey = osmCache.keys().next().value;
-        if (firstKey) osmCache.delete(firstKey);
-      }
-      osmCache.set(cacheKey, { payload, timestamp: Date.now() });
-      res.setHeader('X-Cache', 'MISS');
-      res.json(payload);
-      return;
-    } catch (err) {
-      clearTimeout(timer);
-      lastErr = err instanceof Error ? err.message : String(err);
-    }
+    inFlightOsm.set(cacheKey, pending);
+    pending.finally(() => {
+      inFlightOsm.delete(cacheKey);
+    });
   }
 
-  res.status(502).json({ error: `Failed to fetch live OSM data (${lastErr})` });
+  try {
+    const payload = await pending;
+    res.setHeader('X-Cache', 'MISS');
+    res.json(payload);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Failed to fetch live OSM data' });
+  }
 });
 
 // 2. Real Satellite Imagery, Street Map & AWS Terrarium Elevation DEM Tile Proxy (CORS-safe)

@@ -74,12 +74,12 @@ export default function App() {
     [activeLandmarkId],
   );
 
-  const loadOsmTile = useCallback(async (tileId: string, force = false) => {
+  const loadOsmTile = useCallback(async (tileId: string, force = false): Promise<boolean> => {
     if (!force && (osmLoadedRef.current.has(tileId) || osmInFlightRef.current.has(tileId))) {
-      return;
+      return osmLoadedRef.current.has(tileId);
     }
     const tile = TAGUM_TILES.find((t) => t.id === tileId);
-    if (!tile) return;
+    if (!tile) return false;
 
     osmInFlightRef.current.add(tileId);
     setLoadingTileIds((prev) => new Set(prev).add(tileId));
@@ -90,8 +90,10 @@ export default function App() {
       osmLoadedRef.current.add(tileId);
       setOsmByTile((prev) => ({ ...prev, [tileId]: payload }));
       viewportRef.current?.applyOsmToTile(tileId, payload, verticalBoostRef.current);
+      return true;
     } catch (err) {
-      setOsmError(err instanceof Error ? err.message : 'OSM Overpass request failed');
+      setOsmError(err instanceof Error ? err.message : 'OSM request failed');
+      return false;
     } finally {
       osmInFlightRef.current.delete(tileId);
       setLoadingTileIds((prev) => {
@@ -102,42 +104,93 @@ export default function App() {
     }
   }, []);
 
-  // Automatically load the 4 core downtown Tagum tiles on startup (B2, C2, A3, D3) so real buildings appear immediately!
-  useEffect(() => {
-    const initialPriorityTiles = ['B2', 'C2', 'A3', 'D3'];
-    let cancelled = false;
+  // Stream all 16 OSM tiles by default from downtown Magugpo & landmark tiles outward (3 concurrent workers + retry)
+  const loadRemainingOsmTiles = useCallback(
+    async (isCancelled: () => boolean = () => false) => {
+      const priorityOrder = [
+        'B2',
+        'C2',
+        'B3',
+        'C3',
+        'A3',
+        'D3',
+        'A4',
+        'D4',
+        'B1',
+        'C1',
+        'A2',
+        'D2',
+        'B4',
+        'C4',
+        'A1',
+        'D1',
+      ];
+      const queue = priorityOrder.filter((id) => !osmLoadedRef.current.has(id));
+      if (queue.length === 0) return;
 
-    const runInitial = async () => {
-      for (const id of initialPriorityTiles) {
-        if (cancelled) return;
-        await loadOsmTile(id);
+      setLoadingAllOsm(true);
+      const failed: string[] = [];
+
+      const runPool = async (ids: string[], concurrency: number) => {
+        let cursor = 0;
+        const worker = async () => {
+          while (!isCancelled() && cursor < ids.length) {
+            const tileId = ids[cursor++];
+            if (osmLoadedRef.current.has(tileId) || osmInFlightRef.current.has(tileId)) {
+              continue;
+            }
+            const ok = await loadOsmTile(tileId);
+            if (!ok && !osmLoadedRef.current.has(tileId)) {
+              failed.push(tileId);
+            }
+          }
+        };
+        await Promise.all(
+          Array.from({ length: Math.min(concurrency, ids.length) }, () => worker()),
+        );
+      };
+
+      try {
+        await runPool(queue, 3);
+        // Polite single retry pass for any tile that hit a transient upstream timeout
+        const retryIds = failed.filter((id) => !osmLoadedRef.current.has(id));
+        if (!isCancelled() && retryIds.length > 0) {
+          failed.length = 0;
+          await new Promise((r) => setTimeout(r, 900));
+          if (!isCancelled()) {
+            await runPool(retryIds, 2);
+          }
+        }
+        if (!isCancelled() && osmLoadedRef.current.size >= 16) {
+          setOsmError(null);
+        }
+      } finally {
+        if (!isCancelled()) {
+          setLoadingAllOsm(false);
+        }
       }
-    };
-    runInitial();
+    },
+    [loadOsmTile],
+  );
 
+  // Automatically load all 16 OSM tiles on startup!
+  useEffect(() => {
+    let cancelled = false;
+    loadRemainingOsmTiles(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [loadOsmTile]);
+  }, [loadRemainingOsmTiles]);
 
-  // Auto-load real OSM whenever the user clicks a tile that hasn't been fetched yet
+  // Prioritize fetching a clicked tile immediately if it hasn't finished streaming yet
   useEffect(() => {
     loadOsmTile(selectedTileId);
   }, [selectedTileId, loadOsmTile]);
 
-  // Batch chunked loader for all 16 tiles (mirrors osm_quick_3d chunked workflow!)
+  // Manual trigger to retry any remaining tiles if an upstream request transiently failed
   const handleLoadAllTilesOsm = async () => {
     if (loadingAllOsm) return;
-    setLoadingAllOsm(true);
-    try {
-      for (const tile of TAGUM_TILES) {
-        if (!osmLoadedRef.current.has(tile.id)) {
-          await loadOsmTile(tile.id);
-        }
-      }
-    } finally {
-      setLoadingAllOsm(false);
-    }
+    await loadRemainingOsmTiles();
   };
 
   // Keyboard shortcut 'H' to toggle Zen/Cinema mode

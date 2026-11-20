@@ -163,9 +163,9 @@ export function ControlDock({
             <span className="font-mono-tabular text-slate-400">
               {selectedTileOsm
                 ? `${selectedTileOsm.stats.buildingCount.toLocaleString()} OSM bldgs · ${selectedTileOsm.stats.roadCount} roads`
-                : isSelectedLoading
-                ? 'Loading live OSM...'
-                : 'Click Load OSM'}
+                : isSelectedLoading || loadingAllOsm
+                ? 'Streaming live OSM...'
+                : 'Queued for OSM'}
             </span>
           </div>
 
