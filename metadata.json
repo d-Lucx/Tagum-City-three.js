@@ -1,0 +1,6 @@
+{
+  "name": "Tagum City 3D — Geospatial & Print Workbench",
+  "description": "Interactive 3D architectural model, interlocking 3D-printing tile planner, binary STL exporter, and drone photogrammetry simulator for Tagum City, Davao del Norte.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
