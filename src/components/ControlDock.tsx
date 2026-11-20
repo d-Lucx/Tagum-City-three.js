@@ -12,9 +12,11 @@ import {
   Plane,
   Printer,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import { useState } from 'react';
 import {
+  ActiveLandmarkId,
   CAMERA_PRESETS,
   CameraPresetId,
   computeGsdCmPx,
@@ -42,8 +44,8 @@ interface ControlDockProps {
   onChangeExplodeAmount: (v: number) => void;
   verticalBoost: number;
   onChangeVerticalBoost: (v: number) => void;
-  showHeroLandmarks: boolean;
-  onToggleHeroLandmarks: () => void;
+  activeLandmarkId: ActiveLandmarkId | null;
+  onClearLandmark: () => void;
   selectedTile: TagumTileInfo;
   selectedTileOsm: TileOsmPayload | null;
   loadedOsmCount: number;
@@ -80,8 +82,8 @@ export function ControlDock({
   onChangeExplodeAmount,
   verticalBoost,
   onChangeVerticalBoost,
-  showHeroLandmarks,
-  onToggleHeroLandmarks,
+  activeLandmarkId,
+  onClearLandmark,
   selectedTile,
   selectedTileOsm,
   loadedOsmCount,
@@ -318,22 +320,30 @@ export function ControlDock({
                   </div>
                 </div>
 
-                {/* Hero Architectural Landmarks Toggle */}
+                {/* Jump-Only Landmark Inspector Status / Exit Action */}
                 <div className="md:col-span-2 flex flex-col gap-1.5">
-                  <span className="text-xs text-slate-400 font-medium">3D Landmarks</span>
-                  <button
-                    type="button"
-                    onClick={onToggleHeroLandmarks}
-                    className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
-                      showHeroLandmarks
-                        ? 'border-amber-400/70 bg-amber-500/15 text-amber-200'
-                        : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
-                    }`}
-                    title="Toggle custom 3D architectural models anchored at real GPS landmark coordinates vs pure OSM extrusions"
-                  >
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>{showHeroLandmarks ? '3D + OSM' : 'Raw OSM'}</span>
-                  </button>
+                  <span className="text-xs text-slate-400 font-medium">3D Landmark</span>
+                  {activeLandmarkId ? (
+                    <button
+                      type="button"
+                      onClick={onClearLandmark}
+                      className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-amber-400/70 bg-amber-500/18 text-amber-200 hover:bg-amber-500/28 transition-colors whitespace-nowrap shrink-0"
+                      title="Hide active 3D landmark and return to pure OpenStreetMap view"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Exit Landmark</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onSelectCamera('cityHall')}
+                      className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white transition-colors whitespace-nowrap shrink-0"
+                      title="Jump to a landmark below to reveal its photo-referenced 1:1 3D architecture"
+                    >
+                      <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Jump to View</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -344,16 +354,31 @@ export function ControlDock({
                     <Camera className="w-3.5 h-3.5" />
                     <span>Jump</span>
                   </span>
-                  {CAMERA_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => onSelectCamera(preset.id)}
-                      className="px-2.5 py-1 rounded-md text-xs font-medium text-slate-300 bg-white/5 hover:bg-white/12 hover:text-white border border-white/8 transition-colors whitespace-nowrap shrink-0"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
+                  {CAMERA_PRESETS.map((preset) => {
+                    const isActiveLandmark =
+                      Boolean(preset.landmarkId) && preset.landmarkId === activeLandmarkId;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => onSelectCamera(preset.id)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                          isActiveLandmark
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-semibold'
+                            : preset.landmarkId
+                            ? 'text-amber-100/90 bg-amber-500/10 hover:bg-amber-500/20 hover:text-white border-amber-400/25'
+                            : 'text-slate-300 bg-white/5 hover:bg-white/12 hover:text-white border-white/8'
+                        }`}
+                        title={
+                          preset.landmarkId
+                            ? `Jump to ${preset.label} and reveal detailed 1:1 3D landmark`
+                            : `Switch camera to ${preset.label}`
+                        }
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <div className="flex items-center gap-2 text-xs text-slate-400 font-mono-tabular">

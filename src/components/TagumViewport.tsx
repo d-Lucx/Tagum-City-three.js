@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
+  ActiveLandmarkId,
   CAMERA_PRESETS,
   CameraPresetId,
   DroneTargetId,
@@ -19,7 +20,7 @@ import {
   TileOsmPayload,
 } from '../scene/realGeoLoader';
 import { exportTilesToBinaryStl, StlExportResult } from '../scene/stlExporter';
-import { setActiveRealDem } from '../scene/terrainMath';
+import { getTagumElevation, setActiveRealDem } from '../scene/terrainMath';
 import { createProceduralTexturePack } from '../scene/textures';
 import {
   buildCrosshatchWaypoints,
@@ -46,7 +47,7 @@ interface TagumViewportProps {
   materialMode: MaterialMode;
   explodeAmount: number;
   verticalBoost: number;
-  showHeroLandmarks: boolean;
+  activeLandmarkId: ActiveLandmarkId | null;
   selectedTileId: string;
   onSelectTile: (tileId: string) => void;
   onHoverTile: (tileId: string | null) => void;
@@ -123,7 +124,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       materialMode,
       explodeAmount,
       verticalBoost,
-      showHeroLandmarks,
+      activeLandmarkId,
       selectedTileId,
       onSelectTile,
       onHoverTile,
@@ -141,7 +142,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       materialMode,
       explodeAmount,
       verticalBoost,
-      showHeroLandmarks,
+      activeLandmarkId,
       selectedTileId,
       onSelectTile,
       onHoverTile,
@@ -154,7 +155,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       materialMode,
       explodeAmount,
       verticalBoost,
-      showHeroLandmarks,
+      activeLandmarkId,
       selectedTileId,
       onSelectTile,
       onHoverTile,
@@ -168,7 +169,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       cityRig: TagumCityRig;
       applyMode: (mode: MaterialMode) => void;
       updateBoost: (boost: number) => void;
-      setShowLandmarks: (show: boolean) => void;
+      setActiveLandmark: (activeId: ActiveLandmarkId | null) => void;
       updateDronePath: (active: boolean, target: DroneTargetId, altM: number) => void;
       flyTo: (pos: [number, number, number], target: [number, number, number]) => void;
       focusTile: (tileId: string) => void;
@@ -181,7 +182,17 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
         flyToPreset(presetId) {
           const preset = CAMERA_PRESETS.find((p) => p.id === presetId);
           if (preset && sceneApiRef.current) {
-            sceneApiRef.current.flyTo(preset.position, preset.target);
+            if (preset.landmarkId) {
+              // Anchor landmark close-up framing precisely to the live DEM ground elevation
+              const groundY = getTagumElevation(preset.target[0], preset.target[2]);
+              const camLift = Math.max(0.85, preset.position[1] - preset.target[1]);
+              sceneApiRef.current.flyTo(
+                [preset.position[0], groundY + camLift, preset.position[2]],
+                [preset.target[0], groundY + 0.14, preset.target[2]],
+              );
+            } else {
+              sceneApiRef.current.flyTo(preset.position, preset.target);
+            }
           }
         },
         focusTile(tileId) {
@@ -222,8 +233,8 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
     }, [verticalBoost]);
 
     useEffect(() => {
-      sceneApiRef.current?.setShowLandmarks(showHeroLandmarks);
-    }, [showHeroLandmarks]);
+      sceneApiRef.current?.setActiveLandmark(activeLandmarkId);
+    }, [activeLandmarkId]);
 
     useEffect(() => {
       sceneApiRef.current?.requestRender();
@@ -267,7 +278,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       scene.environment = envTexture;
       pmremGenerator.dispose();
 
-      const camera = new THREE.PerspectiveCamera(42, width / height, 0.25, 360);
+      const camera = new THREE.PerspectiveCamera(42, width / height, 0.05, 360);
       camera.position.set(24, 22, 28);
 
       const controls = new OrbitControls(camera, renderer.domElement);
@@ -275,7 +286,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       controls.enableDamping = !isSoftwareGl;
       controls.dampingFactor = 0.065;
       controls.maxPolarAngle = Math.PI * 0.475;
-      controls.minDistance = 4.5;
+      controls.minDistance = 1.1;
       controls.maxDistance = 88;
       controls.panSpeed = 0.85;
       controls.rotateSpeed = 0.72;
@@ -405,11 +416,11 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
           [maxX, minZ],
           [maxX, maxZ],
           [minX, maxZ],
-          [cx, cz + 2.2],
+          [cx, cz + 1.1],
         ];
         for (const [gx, gz] of gcpCoords) {
           const marker = new THREE.Mesh(gcpGeo, gcpMat);
-          marker.position.set(gx, 0.58, gz);
+          marker.position.set(gx, getTagumElevation(gx, gz) + 0.05, gz);
           gcpGroup.add(marker);
         }
         droneProgressDist = 0;
@@ -441,6 +452,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
 
       let currentExplode = propsRef.current.explodeAmount;
       const tileLiftMap = new Map<string, number>();
+      const landmarkRevealMap = new Map<string, number>();
       let hoveredTileId: string | null = null;
       let camTransitionActive = false;
 
@@ -473,8 +485,13 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
 
       function stepScene(dt: number): boolean {
         let stillMoving = false;
-        const { explodeAmount: targetExplode, selectedTileId: selId, droneActive: dActive } =
-          propsRef.current;
+        const {
+          explodeAmount: targetExplode,
+          selectedTileId: selId,
+          droneActive: dActive,
+          activeLandmarkId: activeLmId,
+          verticalBoost: vBoost,
+        } = propsRef.current;
 
         if (Math.abs(currentExplode - targetExplode) > 0.0008) {
           currentExplode = THREE.MathUtils.damp(currentExplode, targetExplode, 7.5, dt);
@@ -495,7 +512,8 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
 
           const isSelected = tile.info.id === selId;
           const isHovered = tile.info.id === hoveredTileId;
-          const targetLift = isSelected ? 0.36 : isHovered ? 0.14 : 0;
+          // Seat all tiles flush while inspecting an active landmark so neighboring tiles stay seamless
+          const targetLift = activeLmId ? 0 : isSelected ? 0.36 : isHovered ? 0.14 : 0;
           const curLift = tileLiftMap.get(tile.info.id) ?? 0;
           let nextLift = curLift;
           if (Math.abs(curLift - targetLift) > 0.001) {
@@ -507,7 +525,28 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
           tileLiftMap.set(tile.info.id, nextLift);
 
           tile.group.position.set(tile.baseX + offsetX, nextLift, tile.baseZ + offsetZ);
-          tile.selectionFrame.visible = isSelected || isHovered;
+          tile.selectionFrame.visible = !activeLmId && (isSelected || isHovered);
+
+          // Jump-only landmark materialization: smoothly scale 0 -> 1 ONLY for the active landmark
+          if (tile.landmarkGroup && tile.landmarkId) {
+            const targetReveal = tile.landmarkId === activeLmId ? 1 : 0;
+            const curReveal = landmarkRevealMap.get(tile.info.id) ?? 0;
+            let nextReveal = curReveal;
+            if (Math.abs(curReveal - targetReveal) > 0.002) {
+              nextReveal = THREE.MathUtils.damp(curReveal, targetReveal, 8.5, dt);
+              stillMoving = true;
+            } else {
+              nextReveal = targetReveal;
+            }
+            landmarkRevealMap.set(tile.info.id, nextReveal);
+
+            const isVisible = nextReveal > 0.01;
+            tile.landmarkGroup.visible = isVisible;
+            if (isVisible) {
+              const yFactor = 1.0 + (vBoost - 1.0) * 0.18;
+              tile.landmarkGroup.scale.set(nextReveal, nextReveal * yFactor, nextReveal);
+            }
+          }
         }
 
         if (camTransitionActive) {
@@ -696,8 +735,8 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
           cityRig.updateVerticalBoost(boost);
           requestRender();
         },
-        setShowLandmarks: (show: boolean) => {
-          cityRig.setShowHeroLandmarks(show);
+        setActiveLandmark: (activeId: ActiveLandmarkId | null) => {
+          cityRig.setActiveLandmark(activeId);
           requestRender();
         },
         updateDronePath: rebuildDronePath,
@@ -721,7 +760,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       };
 
       applyVisualMode(propsRef.current.materialMode);
-      cityRig.setShowHeroLandmarks(propsRef.current.showHeroLandmarks);
+      cityRig.setActiveLandmark(propsRef.current.activeLandmarkId);
       cityRig.updateVerticalBoost(propsRef.current.verticalBoost);
       rebuildDronePath(
         propsRef.current.droneActive,

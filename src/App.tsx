@@ -3,6 +3,8 @@ import { ControlDock } from './components/ControlDock';
 import { FieldGuideModal } from './components/FieldGuideModal';
 import { GeoSyncStatus, TagumViewport, TagumViewportHandle } from './components/TagumViewport';
 import {
+  ActiveLandmarkId,
+  CAMERA_PRESETS,
   CameraPresetId,
   DRONE_SENSORS,
   DRONE_TARGETS,
@@ -12,6 +14,7 @@ import {
   ScaleKey,
   TAGUM_CITY_FACTS,
   TAGUM_TILES,
+  VERIFIED_LANDMARKS,
 } from './data/tagumData';
 import { fetchRealOsmForTile, TileOsmPayload } from './scene/realGeoLoader';
 import { StlExportResult } from './scene/stlExporter';
@@ -26,7 +29,8 @@ export default function App() {
   const [materialMode, setMaterialMode] = useState<MaterialMode>('satelliteOsm');
   const [explodeAmount, setExplodeAmount] = useState<number>(0.08);
   const [verticalBoost, setVerticalBoost] = useState<number>(1.35);
-  const [showHeroLandmarks, setShowHeroLandmarks] = useState<boolean>(true);
+  // Jump-only landmark reveal: null on startup so pure real OSM footprints display until jumped to
+  const [activeLandmarkId, setActiveLandmarkId] = useState<ActiveLandmarkId | null>(null);
 
   // Default to B2 — Magugpo Poblacion (Freedom Park, Rizal St, dense downtown OSM footprints!)
   const [selectedTileId, setSelectedTileId] = useState<string>('B2');
@@ -69,6 +73,13 @@ export default function App() {
   const selectedScale = useMemo(
     () => PRINT_SCALE_SPECS.find((s) => s.key === scaleKey) ?? PRINT_SCALE_SPECS[3],
     [scaleKey],
+  );
+  const activeLandmark = useMemo(
+    () =>
+      activeLandmarkId
+        ? VERIFIED_LANDMARKS.find((l) => l.id === activeLandmarkId) ?? null
+        : null,
+    [activeLandmarkId],
   );
 
   const loadOsmTile = useCallback(async (tileId: string, force = false) => {
@@ -152,22 +163,46 @@ export default function App() {
   }, [guideOpen]);
 
   const handleSelectCamera = (presetId: CameraPresetId) => {
+    const preset = CAMERA_PRESETS.find((p) => p.id === presetId);
+    if (preset?.landmarkId) {
+      const lm = VERIFIED_LANDMARKS.find((l) => l.id === preset.landmarkId);
+      setActiveLandmarkId(preset.landmarkId);
+      setExplodeAmount(0);
+      if (lm) setSelectedTileId(lm.tileId);
+      viewportRef.current?.flyToPreset(presetId);
+      return;
+    }
+
+    // Jumping to overview / topGrid / printBed clears active 3D landmarks back to pure OSM view
+    setActiveLandmarkId(null);
     if (presetId === 'printBed') {
       setExplodeAmount(0.82);
     } else if (presetId === 'overview' && explodeAmount > 0.5) {
       setExplodeAmount(0.08);
     }
-    if (presetId === 'freedomPark') setSelectedTileId('B2');
-    if (presetId === 'gaisanoMall') setSelectedTileId('C2');
-    if (presetId === 'cathedral') setSelectedTileId('A3');
-    if (presetId === 'cityHall') setSelectedTileId('D3');
     viewportRef.current?.flyToPreset(presetId);
+  };
+
+  const handleClearLandmark = () => {
+    setActiveLandmarkId(null);
+    setExplodeAmount(0.08);
+    viewportRef.current?.flyToPreset('overview');
+  };
+
+  const handleSelectTile = (tileId: string) => {
+    setSelectedTileId(tileId);
+    const tile = TAGUM_TILES.find((t) => t.id === tileId);
+    if (activeLandmarkId && tile?.landmarkId !== activeLandmarkId) {
+      setActiveLandmarkId(null);
+    }
   };
 
   const handleToggleDrone = (active: boolean) => {
     setDroneActive(active);
     if (active) {
       const targetCfg = DRONE_TARGETS[droneTarget];
+      setActiveLandmarkId(droneTarget);
+      setExplodeAmount(0);
       setSelectedTileId(targetCfg.tileId);
       viewportRef.current?.flyToPreset(droneTarget);
     }
@@ -178,6 +213,8 @@ export default function App() {
     const targetCfg = DRONE_TARGETS[target];
     setSelectedTileId(targetCfg.tileId);
     if (droneActive) {
+      setActiveLandmarkId(target);
+      setExplodeAmount(0);
       viewportRef.current?.flyToPreset(target);
     }
   };
@@ -208,9 +245,9 @@ export default function App() {
         materialMode={materialMode}
         explodeAmount={explodeAmount}
         verticalBoost={verticalBoost}
-        showHeroLandmarks={showHeroLandmarks}
+        activeLandmarkId={activeLandmarkId}
         selectedTileId={selectedTileId}
-        onSelectTile={(id) => setSelectedTileId(id)}
+        onSelectTile={handleSelectTile}
         onHoverTile={(id) => setHoveredTileId(id)}
         onGeoStatusChange={setGeoStatus}
         droneActive={droneActive}
@@ -219,30 +256,40 @@ export default function App() {
       />
 
       {/* Minimal Top-Left Real-World Geospatial Header (Zero-Pill, No Backdrop Filter) */}
-      <header className="fixed top-4 left-4 z-10 pointer-events-none px-4 py-2.5 rounded-xl border border-white/14 bg-[#10151d]/90 text-slate-100 max-w-[min(540px,92vw)]">
+      <header className="fixed top-4 left-4 z-10 pointer-events-none px-4 py-2.5 rounded-xl border border-white/14 bg-[#10151d]/90 text-slate-100 max-w-[min(560px,92vw)]">
         <div className="flex items-baseline justify-between gap-4">
           <h1 className="text-sm sm:text-base font-semibold tracking-tight text-white leading-tight">
-            Tagum City 3D
+            {activeLandmark ? activeLandmark.name : 'Tagum City 3D'}
           </h1>
-          <span className="text-[11px] font-mono-tabular text-slate-400">
-            WGS84 {selectedTile.latCenter.toFixed(4)}°N, {selectedTile.lonCenter.toFixed(4)}°E
+          <span className="text-[11px] font-mono-tabular text-slate-400 shrink-0">
+            WGS84{' '}
+            {(activeLandmark ? activeLandmark.lat : selectedTile.latCenter).toFixed(4)}°N,{' '}
+            {(activeLandmark ? activeLandmark.lon : selectedTile.lonCenter).toFixed(4)}°E
           </span>
         </div>
 
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-300 font-mono-tabular">
-          <span>Live OpenStreetMap + Real DEM</span>
+          <span>{activeLandmark ? '1:1 Photo-Referenced Landmark' : 'Live OpenStreetMap + Real DEM'}</span>
           <span className="text-slate-500" aria-hidden="true">
             ·
           </span>
-          <span>{TAGUM_CITY_FACTS.areaKm2} km²</span>
-          <span className="text-slate-500" aria-hidden="true">
-            ·
-          </span>
-          <span>4×4 km Core ({selectedScale.label})</span>
+          <span>{activeLandmark ? `Tile ${activeLandmark.tileId} · ${activeLandmark.barangay}` : `${TAGUM_CITY_FACTS.areaKm2} km²`}</span>
+          {!activeLandmark && (
+            <>
+              <span className="text-slate-500" aria-hidden="true">
+                ·
+              </span>
+              <span>4×4 km Core ({selectedScale.label})</span>
+            </>
+          )}
         </div>
 
         <div className="mt-1.5 pt-1.5 border-t border-white/10 text-[11px]">
-          {hoveredTile ? (
+          {activeLandmark ? (
+            <span className="text-amber-300/95 leading-snug block">
+              {activeLandmark.architecturalNotes}
+            </span>
+          ) : hoveredTile ? (
             <span className="text-amber-300">
               Click Tile {hoveredTile.id} — {hoveredTile.barangay}
               {hoveredTile.landmarkName ? ` (${hoveredTile.landmarkName})` : ''}
@@ -275,8 +322,8 @@ export default function App() {
         onChangeExplodeAmount={setExplodeAmount}
         verticalBoost={verticalBoost}
         onChangeVerticalBoost={setVerticalBoost}
-        showHeroLandmarks={showHeroLandmarks}
-        onToggleHeroLandmarks={() => setShowHeroLandmarks((v) => !v)}
+        activeLandmarkId={activeLandmarkId}
+        onClearLandmark={handleClearLandmark}
         selectedTile={selectedTile}
         selectedTileOsm={selectedTileOsm}
         loadedOsmCount={loadedOsmCount}

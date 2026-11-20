@@ -6,6 +6,8 @@ export type MaterialMode =
   | 'architecturalPla'
   | 'lidarHypsometric';
 
+export type ActiveLandmarkId = 'freedomPark' | 'cityHall' | 'cathedral' | 'gaisanoMall';
+
 export type CameraPresetId =
   | 'overview'
   | 'freedomPark'
@@ -20,13 +22,15 @@ export type ScaleKey = '1:1000' | '1:2000' | '1:2500' | '1:5000' | '1:10000';
 export type DroneTargetId = 'cityHall' | 'cathedral' | 'freedomPark';
 
 export interface VerifiedLandmark {
-  id: 'cityHall' | 'cathedral' | 'freedomPark' | 'gaisanoMall' | 'robinsonsPlace';
+  id: ActiveLandmarkId;
   name: string;
   tileId: string;
   lat: number;
   lon: number;
   barangay: string;
-  summary: string;
+  architecturalNotes: string;
+  osmMatchPattern: RegExp;
+  footprintRadiusScene: number;
 }
 
 export interface TagumTileInfo {
@@ -42,6 +46,7 @@ export interface TagumTileInfo {
   buildingCount: number;
   estFilamentG: number;
   estPrintHours: number;
+  landmarkId?: ActiveLandmarkId;
   landmarkName?: string;
   landmarkSummary?: string;
 }
@@ -84,6 +89,7 @@ export interface CameraPreset {
   label: string;
   position: [number, number, number];
   target: [number, number, number];
+  landmarkId?: ActiveLandmarkId;
 }
 
 export const TAGUM_CITY_FACTS = {
@@ -101,52 +107,55 @@ export const TAGUM_CITY_FACTS = {
   coreAreaKm: 4,
 };
 
-// Verified real-world WGS84 coordinates for Tagum City landmarks
+// Exact OSM-measured centroids, footprints, and photo-referenced architectural summaries
 export const VERIFIED_LANDMARKS: VerifiedLandmark[] = [
   {
     id: 'freedomPark',
-    name: 'Freedom Park & Tagum Historical Center',
+    name: 'Tagum City Historical & Cultural Center & Freedom Park',
     tileId: 'B2',
-    lat: 7.4474,
-    lon: 125.8041,
+    lat: 7.44759,
+    lon: 125.80412,
     barangay: 'Magugpo Poblacion',
-    summary: 'Ceremonial city plaza, Rizal Street civic core, and Tagum Historical & Cultural Center.',
+    architecturalNotes:
+      'Inaugurated 2021 · Contemporary white arched colonnade along Rizal St, Tagumpay Theater & Freedom Park plaza (64 × 36 m)',
+    osmMatchPattern: /Historical & Cultural Center/i,
+    footprintRadiusScene: 0.44,
   },
   {
     id: 'gaisanoMall',
     name: 'Gaisano Mall of Tagum',
     tileId: 'C2',
     lat: 7.44929,
-    lon: 125.81196,
+    lon: 125.81203,
     barangay: 'Magugpo East / Briz',
-    summary: 'Major commercial hub along Daang Maharlika (Pan-Philippine Highway).',
+    architecturalNotes:
+      'Dual-building commercial hub (Buildings A & B) linked by an elevated glazed skybridge along Daang Maharlika',
+    osmMatchPattern: /^Gaisano Mall of Tagum$/i,
+    footprintRadiusScene: 1.15,
   },
   {
     id: 'cathedral',
     name: 'Christ the King Cathedral',
     tileId: 'A3',
-    lat: 7.44115,
-    lon: 125.79992,
+    lat: 7.44102,
+    lon: 125.79995,
     barangay: 'Magugpo West',
-    summary: 'Diocesan cathedral with iconic peaked sanctuary roof and belfry spire.',
+    architecturalNotes:
+      'Medieval castle-fortress cathedral (1993–2005) with twin crenellated towers, Kublai fountain & 85.5 m Wooden Rosary Garden',
+    osmMatchPattern: /Christ the King Cathedral/i,
+    footprintRadiusScene: 0.45,
   },
   {
     id: 'cityHall',
     name: 'New Tagum City Hall',
     tileId: 'D3',
     lat: 7.4408,
-    lon: 125.82647,
-    barangay: 'Apokon',
-    summary: 'Curved modern civic capitol along J.V. Ayala Avenue, Barangay Apokon.',
-  },
-  {
-    id: 'robinsonsPlace',
-    name: 'Robinsons Place Tagum',
-    tileId: 'A4',
-    lat: 7.42943,
-    lon: 125.79751,
-    barangay: 'Visayan Village',
-    summary: 'Southern National Highway retail center near the Tagum overland corridor.',
+    lon: 125.82648,
+    barangay: 'Apokon Civic Center',
+    architecturalNotes:
+      'Designed by Sol Flores · Contemporary steel-and-glass executive & legislative wings with sweeping curved atrium roof (114 × 81 m)',
+    osmMatchPattern: /^City Hall of Tagum$/i,
+    footprintRadiusScene: 0.72,
   },
 ];
 
@@ -234,25 +243,21 @@ const RAW_TILE_META: Array<{
   estFilamentG: number;
   estPrintHours: number;
 }> = [
-  // Row 0 (North: ~7.4540°N – 7.4630°N)
   { col: 0, row: 0, barangay: 'Mankilam North', zoneType: 'residential', avgElevationM: 25, estFilamentG: 112, estPrintHours: 4.6 },
   { col: 1, row: 0, barangay: 'Magugpo North', zoneType: 'commercial', avgElevationM: 27, estFilamentG: 126, estPrintHours: 5.2 },
   { col: 2, row: 0, barangay: 'La Filipina South', zoneType: 'upland', avgElevationM: 38, estFilamentG: 138, estPrintHours: 5.7 },
   { col: 3, row: 0, barangay: 'San Miguel West', zoneType: 'upland', avgElevationM: 52, estFilamentG: 152, estPrintHours: 6.1 },
 
-  // Row 1 (Central-North: ~7.4450°N – 7.4540°N)
   { col: 0, row: 1, barangay: 'Magugpo West North', zoneType: 'residential', avgElevationM: 21, estFilamentG: 122, estPrintHours: 5.1 },
   { col: 1, row: 1, barangay: 'Magugpo Poblacion', zoneType: 'civic', avgElevationM: 24, estFilamentG: 146, estPrintHours: 6.4 },
   { col: 2, row: 1, barangay: 'Magugpo East / Briz', zoneType: 'commercial', avgElevationM: 28, estFilamentG: 136, estPrintHours: 5.7 },
   { col: 3, row: 1, barangay: 'Apokon North', zoneType: 'residential', avgElevationM: 35, estFilamentG: 124, estPrintHours: 5.1 },
 
-  // Row 2 (Central-South: ~7.4360°N – 7.4450°N)
   { col: 0, row: 2, barangay: 'Magugpo West', zoneType: 'cathedral', avgElevationM: 20, estFilamentG: 134, estPrintHours: 5.8 },
   { col: 1, row: 2, barangay: 'Magugpo South', zoneType: 'commercial', avgElevationM: 21, estFilamentG: 132, estPrintHours: 5.6 },
   { col: 2, row: 2, barangay: 'Apokon West', zoneType: 'residential', avgElevationM: 25, estFilamentG: 120, estPrintHours: 4.9 },
   { col: 3, row: 2, barangay: 'Apokon Civic Center', zoneType: 'civic', avgElevationM: 30, estFilamentG: 142, estPrintHours: 6.2 },
 
-  // Row 3 (South: ~7.4270°N – 7.4360°N)
   { col: 0, row: 3, barangay: 'Visayan Village West', zoneType: 'commercial', avgElevationM: 15, estFilamentG: 118, estPrintHours: 4.8 },
   { col: 1, row: 3, barangay: 'Visayan Village East', zoneType: 'residential', avgElevationM: 16, estFilamentG: 110, estPrintHours: 4.5 },
   { col: 2, row: 3, barangay: 'Apokon South', zoneType: 'river', avgElevationM: 18, estFilamentG: 104, estPrintHours: 4.3 },
@@ -276,8 +281,9 @@ export const TAGUM_TILES: TagumTileInfo[] = RAW_TILE_META.map((m) => {
     buildingCount: 0,
     estFilamentG: m.estFilamentG,
     estPrintHours: m.estPrintHours,
+    landmarkId: landmark?.id,
     landmarkName: landmark?.name,
-    landmarkSummary: landmark?.summary,
+    landmarkSummary: landmark?.architecturalNotes,
   };
 });
 
@@ -290,7 +296,7 @@ export const GEOSPATIAL_DATASETS: GeospatialDataset[] = [
   {
     name: 'OpenStreetMap (OSM) — Live Active',
     resolution: 'Real vector building footprints, roads, waterways & tags',
-    coverage: 'Live Overpass query per 1 km × 1 km Tagum tile',
+    coverage: 'Live OSM 0.6 REST API query per 1 km × 1 km Tagum tile',
     license: 'ODbL · Live via /api/geo/osm proxy',
     limitation: 'Height tags are sparse outside Magugpo center; fallback height rules applied',
   },
@@ -375,8 +381,12 @@ export const DRONE_SENSORS: DroneSensorSpec[] = [
   },
 ];
 
-// Anchor drone survey zones to exact verified WGS84 scene positions
-function landmarkScenePos(id: VerifiedLandmark['id']): { x: number; z: number; tileId: string; name: string } {
+function landmarkScenePos(id: ActiveLandmarkId): {
+  x: number;
+  z: number;
+  tileId: string;
+  name: string;
+} {
   const lm = VERIFIED_LANDMARKS.find((l) => l.id === id)!;
   const pt = latLonToScene(lm.lat, lm.lon);
   return { x: pt.x, z: pt.z, tileId: lm.tileId, name: lm.name };
@@ -391,41 +401,46 @@ export const DRONE_TARGETS: Record<
   DroneTargetId,
   { name: string; tileId: string; x: number; z: number; span: number }
 > = {
-  cityHall: { ...chPos, span: 5.6 },
-  cathedral: { ...catPos, span: 5.4 },
-  freedomPark: { ...fpPos, span: 5.8 },
+  cityHall: { ...chPos, span: 2.4 },
+  cathedral: { ...catPos, span: 2.1 },
+  freedomPark: { ...fpPos, span: 2.2 },
 };
 
+// Close architectural framing camera presets so true-scale 1:1 landmarks inspect crisply!
 export const CAMERA_PRESETS: CameraPreset[] = [
   {
     id: 'overview',
     label: 'City Core',
-    position: [26, 24, 30],
-    target: [0, 0.4, 0],
+    position: [24, 22, 28],
+    target: [-2, 0.4, -1],
   },
   {
     id: 'freedomPark',
     label: 'Freedom Park',
-    position: [fpPos.x + 6.5, 6.4, fpPos.z + 7.2],
-    target: [fpPos.x, 0.6, fpPos.z],
+    position: [fpPos.x + 1.05, 1.35, fpPos.z + 1.65],
+    target: [fpPos.x, 0.52, fpPos.z + 0.14],
+    landmarkId: 'freedomPark',
   },
   {
     id: 'cityHall',
     label: 'City Hall',
-    position: [chPos.x + 6.4, 6.2, chPos.z + 7.0],
-    target: [chPos.x, 0.7, chPos.z],
+    position: [chPos.x + 1.35, 1.55, chPos.z + 1.75],
+    target: [chPos.x, 0.62, chPos.z],
+    landmarkId: 'cityHall',
   },
   {
     id: 'cathedral',
     label: 'Cathedral',
-    position: [catPos.x + 6.2, 6.2, catPos.z + 6.8],
-    target: [catPos.x, 0.7, catPos.z],
+    position: [catPos.x + 1.15, 1.45, catPos.z + 1.55],
+    target: [catPos.x, 0.55, catPos.z - 0.05],
+    landmarkId: 'cathedral',
   },
   {
     id: 'gaisanoMall',
     label: 'Gaisano Mall',
-    position: [gmPos.x + 6.4, 6.4, gmPos.z + 7.0],
+    position: [gmPos.x + 1.95, 2.05, gmPos.z + 2.35],
     target: [gmPos.x, 0.6, gmPos.z],
+    landmarkId: 'gaisanoMall',
   },
   {
     id: 'topGrid',

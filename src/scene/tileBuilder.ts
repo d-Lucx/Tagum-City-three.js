@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
+  ActiveLandmarkId,
   DroneTargetId,
   DRONE_TARGETS,
   getTileInfoByGrid,
@@ -39,8 +40,10 @@ export interface BuiltTileEntry {
   osmGroup: THREE.Group;
   osmRegularMesh: THREE.Mesh | null;
   osmNamedMesh: THREE.Mesh | null;
+  osmLandmarkMeshes: Partial<Record<ActiveLandmarkId, THREE.Mesh>>;
   osmLoaded: boolean;
   osmPayload: TileOsmPayload | null;
+  landmarkId: ActiveLandmarkId | null;
   landmarkGroup: THREE.Group | null;
   landmarkWorldPos: { x: number; z: number } | null;
   selectionFrame: THREE.Group;
@@ -56,7 +59,7 @@ export interface TagumCityRig {
   horizonWater: THREE.Mesh;
   updateVisualMode: (mode: MaterialMode) => void;
   updateVerticalBoost: (boost: number) => void;
-  setShowHeroLandmarks: (show: boolean) => void;
+  setActiveLandmark: (activeId: ActiveLandmarkId | null) => void;
   applyRealElevationToAllTiles: () => void;
   applyBasemapTextures: (
     satMap: Map<string, THREE.CanvasTexture> | null,
@@ -338,9 +341,18 @@ function buildRealOsmBuildingsMeshes(
   buildings: RealOsmBuilding[],
   materials: TagumMaterialSet,
   verticalBoost: number,
-): { regularMesh: THREE.Mesh | null; namedMesh: THREE.Mesh | null } {
+): {
+  regularMesh: THREE.Mesh | null;
+  namedMesh: THREE.Mesh | null;
+  landmarkMeshes: Partial<Record<ActiveLandmarkId, THREE.Mesh>>;
+} {
   const regularGeos: THREE.BufferGeometry[] = [];
   const namedGeos: THREE.BufferGeometry[] = [];
+  const landmarkGeos: Partial<Record<ActiveLandmarkId, THREE.BufferGeometry[]>> = {};
+  const landmarkSceneCenters = VERIFIED_LANDMARKS.map((lm) => ({
+    lm,
+    pos: latLonToScene(lm.lat, lm.lon),
+  }));
   const half = TILE_SIZE_UNITS / 2;
 
   for (const b of buildings) {
@@ -415,7 +427,22 @@ function buildRealOsmBuildingsMeshes(
       cleanGeo.setAttribute('aRawH', new THREE.BufferAttribute(rawHArr, 1));
       cleanGeo.computeVertexNormals();
 
-      if (b.name || b.levels >= 3) {
+      // Separate OSM footprints that overlap any verified focal landmark so they hide cleanly when that landmark is active
+      let matchedLandmarkId: ActiveLandmarkId | null = null;
+      for (const entry of landmarkSceneCenters) {
+        const dist = Math.hypot(cScene.x - entry.pos.x, cScene.z - entry.pos.z);
+        const nameMatches = Boolean(b.name && entry.lm.osmMatchPattern.test(b.name));
+        if (nameMatches || dist < entry.lm.footprintRadiusScene * 0.78) {
+          matchedLandmarkId = entry.lm.id;
+          break;
+        }
+      }
+
+      if (matchedLandmarkId) {
+        const bucket = landmarkGeos[matchedLandmarkId] ?? [];
+        bucket.push(cleanGeo);
+        landmarkGeos[matchedLandmarkId] = bucket;
+      } else if (b.name || b.levels >= 3) {
         namedGeos.push(cleanGeo);
       } else {
         regularGeos.push(cleanGeo);
@@ -447,7 +474,22 @@ function buildRealOsmBuildingsMeshes(
     }
   }
 
-  return { regularMesh, namedMesh };
+  const landmarkMeshes: Partial<Record<ActiveLandmarkId, THREE.Mesh>> = {};
+  for (const [lmKey, geos] of Object.entries(landmarkGeos) as Array<
+    [ActiveLandmarkId, THREE.BufferGeometry[]]
+  >) {
+    if (!geos || geos.length === 0) continue;
+    const merged = mergeGeometries(geos, false);
+    geos.forEach((g) => g.dispose());
+    if (merged) {
+      const lmMesh = new THREE.Mesh(merged, materials.osmBuildingNamed);
+      lmMesh.castShadow = true;
+      lmMesh.receiveShadow = true;
+      landmarkMeshes[lmKey] = lmMesh;
+    }
+  }
+
+  return { regularMesh, namedMesh, landmarkMeshes };
 }
 
 /**
@@ -601,25 +643,23 @@ export function buildTagumCityScene(
       osmGroup.name = `OSM_${info.id}`;
       tileGroup.add(osmGroup);
 
-      // 3. Verified Real-GPS Composite Hero Landmarks (anchored at exact lat/lon!)
+      // 3. Verified Real-GPS Photo-Referenced 1:1 Landmarks (hidden until jumped to!)
+      let landmarkId: ActiveLandmarkId | null = null;
       let landmarkGroup: THREE.Group | null = null;
       let landmarkWorldPos: { x: number; z: number } | null = null;
       const lmInfo = VERIFIED_LANDMARKS.find((l) => l.tileId === info.id);
       if (lmInfo) {
         const wPos = latLonToScene(lmInfo.lat, lmInfo.lon);
+        landmarkId = lmInfo.id;
         landmarkWorldPos = wPos;
         if (lmInfo.id === 'cityHall') {
           landmarkGroup = buildTagumCityHall(materials, shadowMap);
-          landmarkGroup.scale.setScalar(0.46); // True architectural scale relative to 1 km = 10 units
         } else if (lmInfo.id === 'cathedral') {
           landmarkGroup = buildChristTheKingCathedral(materials, shadowMap);
-          landmarkGroup.scale.setScalar(0.44);
         } else if (lmInfo.id === 'freedomPark') {
           landmarkGroup = buildFreedomParkComplex(materials, shadowMap);
-          landmarkGroup.scale.setScalar(0.46);
-        } else if (lmInfo.id === 'gaisanoMall' || lmInfo.id === 'robinsonsPlace') {
+        } else if (lmInfo.id === 'gaisanoMall') {
           landmarkGroup = buildGaisanoCommercialHub(materials, shadowMap);
-          landmarkGroup.scale.setScalar(0.44);
         }
         if (landmarkGroup) {
           landmarkGroup.position.set(
@@ -627,6 +667,8 @@ export function buildTagumCityScene(
             getTagumElevation(wPos.x, wPos.z),
             wPos.z - cz,
           );
+          landmarkGroup.visible = false;
+          landmarkGroup.scale.setScalar(0.001);
           tileGroup.add(landmarkGroup);
         }
       }
@@ -658,8 +700,10 @@ export function buildTagumCityScene(
         osmGroup,
         osmRegularMesh: null,
         osmNamedMesh: null,
+        osmLandmarkMeshes: {},
         osmLoaded: false,
         osmPayload: null,
+        landmarkId,
         landmarkGroup,
         landmarkWorldPos,
         selectionFrame,
@@ -723,6 +767,7 @@ export function buildTagumCityScene(
 
   let currentModeCache: MaterialMode = 'satelliteOsm';
   let currentBoostCache = 1.35;
+  let activeLandmarkIdCache: ActiveLandmarkId | null = null;
 
   const updateVisualMode = (mode: MaterialMode) => {
     currentModeCache = mode;
@@ -831,7 +876,7 @@ export function buildTagumCityScene(
       tile.osmGroup.remove(ch);
     }
 
-    const { regularMesh, namedMesh } = buildRealOsmBuildingsMeshes(
+    const { regularMesh, namedMesh, landmarkMeshes } = buildRealOsmBuildingsMeshes(
       tile,
       payload.buildings,
       materials,
@@ -839,12 +884,20 @@ export function buildTagumCityScene(
     );
     if (regularMesh) tile.osmGroup.add(regularMesh);
     if (namedMesh) tile.osmGroup.add(namedMesh);
+    for (const [lmKey, lmMesh] of Object.entries(landmarkMeshes) as Array<
+      [ActiveLandmarkId, THREE.Mesh]
+    >) {
+      if (!lmMesh) continue;
+      lmMesh.visible = lmKey !== activeLandmarkIdCache;
+      tile.osmGroup.add(lmMesh);
+    }
 
     const vectors = buildRealOsmVectorsGroup(tile, payload, materials);
     tile.osmGroup.add(vectors);
 
     tile.osmRegularMesh = regularMesh;
     tile.osmNamedMesh = namedMesh;
+    tile.osmLandmarkMeshes = landmarkMeshes;
     tile.osmLoaded = true;
     tile.osmPayload = payload;
   };
@@ -854,17 +907,22 @@ export function buildTagumCityScene(
     for (const tile of tiles) {
       rescaleOsmBuildingGeometry(tile.osmRegularMesh, boost);
       rescaleOsmBuildingGeometry(tile.osmNamedMesh, boost);
-      if (tile.landmarkGroup) {
-        const baseScale = tile.info.id === 'A3' || tile.info.id === 'C2' || tile.info.id === 'A4' ? 0.44 : 0.46;
-        tile.landmarkGroup.scale.set(baseScale, baseScale * (0.72 + boost * 0.28), baseScale);
+      for (const lmMesh of Object.values(tile.osmLandmarkMeshes)) {
+        if (lmMesh) rescaleOsmBuildingGeometry(lmMesh, boost);
       }
     }
   };
 
-  const setShowHeroLandmarks = (show: boolean) => {
+  const setActiveLandmark = (activeId: ActiveLandmarkId | null) => {
+    activeLandmarkIdCache = activeId;
     for (const tile of tiles) {
-      if (tile.landmarkGroup) {
-        tile.landmarkGroup.visible = show;
+      // Hide raw flat-top OSM polygon strictly beneath the active detailed 3D landmark; restore all others
+      for (const [lmKey, lmMesh] of Object.entries(tile.osmLandmarkMeshes) as Array<
+        [ActiveLandmarkId, THREE.Mesh]
+      >) {
+        if (lmMesh) {
+          lmMesh.visible = lmKey !== activeId;
+        }
       }
     }
   };
@@ -891,7 +949,7 @@ export function buildTagumCityScene(
     horizonWater,
     updateVisualMode,
     updateVerticalBoost,
-    setShowHeroLandmarks,
+    setActiveLandmark,
     applyRealElevationToAllTiles,
     applyBasemapTextures,
     applyRealOsmToTile,
@@ -905,7 +963,7 @@ export function buildCrosshatchWaypoints(
 ): THREE.Vector3[] {
   const cfg = DRONE_TARGETS[targetId];
   const groundY = getTagumElevation(cfg.x, cfg.z);
-  const flightY = groundY + 1.8 + (altitudeM - 60) * 0.036;
+  const flightY = groundY + 0.72 + (altitudeM - 60) * 0.012;
   const half = cfg.span / 2;
   const lines = 4;
   const step = cfg.span / (lines - 1);
