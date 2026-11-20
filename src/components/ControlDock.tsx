@@ -9,7 +9,6 @@ import {
   Layers,
   Loader2,
   Map as MapIcon,
-  Plane,
   Printer,
   RefreshCw,
   X,
@@ -19,21 +18,16 @@ import {
   ActiveLandmarkId,
   CAMERA_PRESETS,
   CameraPresetId,
-  computeGsdCmPx,
-  DRONE_SENSORS,
-  DRONE_TARGETS,
-  DroneTargetId,
   MaterialMode,
   PRINT_SCALE_SPECS,
   ScaleKey,
-  TAGUM_CITY_FACTS,
   TagumTileInfo,
 } from '../data/tagumData';
 import { TileOsmPayload } from '../scene/realGeoLoader';
 import { StlExportResult } from '../scene/stlExporter';
 import { GeoSyncStatus } from './TagumViewport';
 
-type DockTab = 'map' | 'print' | 'drone';
+type DockTab = 'map' | 'print';
 
 interface ControlDockProps {
   collapsed: boolean;
@@ -62,14 +56,6 @@ interface ControlDockProps {
   onExportSelectedStl: () => void;
   onExportCoreStl: () => void;
   lastExport: StlExportResult | null;
-  droneActive: boolean;
-  onToggleDrone: (active: boolean) => void;
-  droneTarget: DroneTargetId;
-  onChangeDroneTarget: (target: DroneTargetId) => void;
-  droneAltitudeM: number;
-  onChangeDroneAltitudeM: (alt: number) => void;
-  droneSensorId: string;
-  onChangeDroneSensorId: (id: string) => void;
   onOpenFieldGuide: () => void;
 }
 
@@ -100,21 +86,11 @@ export function ControlDock({
   onExportSelectedStl,
   onExportCoreStl,
   lastExport,
-  droneActive,
-  onToggleDrone,
-  droneTarget,
-  onChangeDroneTarget,
-  droneAltitudeM,
-  onChangeDroneAltitudeM,
-  droneSensorId,
-  onChangeDroneSensorId,
   onOpenFieldGuide,
 }: ControlDockProps) {
   const [activeTab, setActiveTab] = useState<DockTab>('map');
 
   const scaleSpec = PRINT_SCALE_SPECS.find((s) => s.key === scaleKey) ?? PRINT_SCALE_SPECS[3];
-  const sensor = DRONE_SENSORS.find((s) => s.id === droneSensorId) ?? DRONE_SENSORS[0];
-  const gsdCmPx = computeGsdCmPx(sensor, droneAltitudeM);
   const isSelectedLoading = loadingTileIds.has(selectedTile.id);
 
   return (
@@ -168,18 +144,6 @@ export function ControlDock({
             >
               <Printer className="w-3.5 h-3.5" />
               <span>3D Print & STL</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('drone')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                activeTab === 'drone'
-                  ? 'bg-amber-500 text-slate-950 font-semibold'
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Plane className="w-3.5 h-3.5" />
-              <span>Drone Survey</span>
             </button>
           </div>
 
@@ -347,9 +311,9 @@ export function ControlDock({
                 </div>
               </div>
 
-              {/* Camera Presets + Real OSM Status Row */}
+              {/* Camera Presets + 8 Clickable Landmarks + Real Geo Status Row */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10">
-                <div className="flex items-center gap-1.5 overflow-x-auto">
+                <div className="flex items-center gap-1.5 overflow-x-auto studio-scroll pb-0.5 max-w-full flex-1 min-w-0">
                   <span className="inline-flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap shrink-0 mr-0.5">
                     <Camera className="w-3.5 h-3.5" />
                     <span>Jump</span>
@@ -381,8 +345,11 @@ export function ControlDock({
                   })}
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-slate-400 font-mono-tabular">
-                  <span>{geoStatus.demReady ? `DEM ${geoStatus.demRangeLabel}` : geoStatus.demRangeLabel}</span>
+                <div className="flex items-center gap-2 text-xs text-slate-400 font-mono-tabular shrink-0">
+                  <span>
+                    {geoStatus.demReady ? `DEM ${geoStatus.demRangeLabel}` : geoStatus.demRangeLabel}
+                    {geoStatus.basemapReady && geoStatus.satTierLabel ? ` · ${geoStatus.satTierLabel}` : ''}
+                  </span>
                   {osmError && (
                     <button
                       type="button"
@@ -488,120 +455,6 @@ export function ControlDock({
                   </span>
                 </div>
               )}
-            </div>
-          )}
-
-          {activeTab === 'drone' && (
-            <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                <div className="md:col-span-3 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onToggleDrone(!droneActive)}
-                    className={`w-full px-3 py-2 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 ${
-                      droneActive
-                        ? 'bg-amber-500 border-amber-400 text-slate-950'
-                        : 'bg-white/5 border-white/15 text-slate-100 hover:bg-white/10'
-                    }`}
-                  >
-                    {droneActive ? 'Stop Crosshatch Sim' : 'Launch Crosshatch Sim'}
-                  </button>
-                </div>
-
-                <div className="md:col-span-4 flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">Verified GPS Survey Zone</span>
-                  <div className="grid grid-cols-3 gap-1">
-                    {(Object.keys(DRONE_TARGETS) as DroneTargetId[]).map((tKey) => (
-                      <button
-                        key={tKey}
-                        type="button"
-                        onClick={() => onChangeDroneTarget(tKey)}
-                        className={`px-2 py-1.5 rounded-md text-xs font-medium border transition-colors whitespace-nowrap truncate ${
-                          droneTarget === tKey
-                            ? 'border-amber-400 bg-amber-500/18 text-white'
-                            : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
-                        }`}
-                      >
-                        {tKey === 'cityHall'
-                          ? 'City Hall'
-                          : tKey === 'cathedral'
-                          ? 'Cathedral'
-                          : 'Freedom Pk'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="md:col-span-2 flex flex-col gap-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <label htmlFor="alt-slider" className="text-slate-400">
-                      Altitude AGL
-                    </label>
-                    <span className="font-mono-tabular text-amber-400 font-medium">
-                      {droneAltitudeM} m
-                    </span>
-                  </div>
-                  <input
-                    id="alt-slider"
-                    type="range"
-                    min={60}
-                    max={120}
-                    step={5}
-                    value={droneAltitudeM}
-                    onChange={(e) => onChangeDroneAltitudeM(parseInt(e.target.value, 10))}
-                    className="studio-slider w-full"
-                  />
-                </div>
-
-                <div className="md:col-span-3 flex flex-col gap-1">
-                  <label htmlFor="sensor-select" className="text-xs text-slate-400">
-                    Camera Sensor
-                  </label>
-                  <select
-                    id="sensor-select"
-                    value={droneSensorId}
-                    onChange={(e) => onChangeDroneSensorId(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-[#171f2a] px-2.5 py-1.5 text-xs text-slate-100 focus-visible:outline-2 focus-visible:outline-amber-400"
-                  >
-                    {DRONE_SENSORS.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10 text-xs text-slate-300">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span>
-                    GSD:{' '}
-                    <strong className="font-mono-tabular text-amber-300">
-                      {gsdCmPx.toFixed(2)} cm/px
-                    </strong>
-                  </span>
-                  <span className="text-slate-600" aria-hidden="true">
-                    ·
-                  </span>
-                  <span>
-                    Pattern: <strong className="text-slate-100">Double-Grid 45° Oblique</strong> (80%
-                    / 75% overlap)
-                  </span>
-                  <span className="text-slate-600" aria-hidden="true">
-                    ·
-                  </span>
-                  <span>
-                    Max Speed:{' '}
-                    <strong className="font-mono-tabular text-slate-100">
-                      {sensor.maxSurveySpeedMs}
-                    </strong>
-                  </span>
-                </div>
-                <div className="text-slate-400 font-mono-tabular">
-                  {TAGUM_CITY_FACTS.dvoAirportDistanceKm.toFixed(1)} km from DVO · CAAP PCAR Part 11
-                  Special Permit req. over urban streets
-                </div>
-              </div>
             </div>
           )}
         </div>

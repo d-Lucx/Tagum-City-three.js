@@ -12,7 +12,7 @@ const app = express();
 // Simple bounded in-memory caches so repeated tile/OSM requests are instantaneous
 const osmCache = new Map<string, { payload: unknown; timestamp: number }>();
 const tileCache = new Map<string, { buffer: Buffer; contentType: string }>();
-const MAX_TILE_CACHE = 320;
+const MAX_TILE_CACHE = 1200;
 const MAX_OSM_CACHE = 64;
 
 const OVERPASS_ENDPOINTS = [
@@ -381,7 +381,7 @@ app.get('/api/geo/tile/:source/:z/:x/:y', async (req, res) => {
     !Number.isInteger(x) ||
     !Number.isInteger(y) ||
     z < 10 ||
-    z > 17
+    z > 18
   ) {
     res.status(400).send('Invalid tile parameters');
     return;

@@ -6,9 +6,6 @@ import {
   ActiveLandmarkId,
   CAMERA_PRESETS,
   CameraPresetId,
-  DRONE_SENSORS,
-  DRONE_TARGETS,
-  DroneTargetId,
   MaterialMode,
   PRINT_SCALE_SPECS,
   ScaleKey,
@@ -25,24 +22,19 @@ export default function App() {
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
 
-  // Start in Real Satellite + Live OpenStreetMap 3D mode!
+  // Start in Real Satellite + Live OpenStreetMap 3D mode with 0% tile explode!
   const [materialMode, setMaterialMode] = useState<MaterialMode>('satelliteOsm');
-  const [explodeAmount, setExplodeAmount] = useState<number>(0.08);
+  const [explodeAmount, setExplodeAmount] = useState<number>(0);
   const [verticalBoost, setVerticalBoost] = useState<number>(1.35);
   // Jump-only landmark reveal: null on startup so pure real OSM footprints display until jumped to
   const [activeLandmarkId, setActiveLandmarkId] = useState<ActiveLandmarkId | null>(null);
 
-  // Default to B2 — Magugpo Poblacion (Freedom Park, Rizal St, dense downtown OSM footprints!)
+  // Default to B2 — Magugpo Poblacion (Freedom Park, Trade Center, Rizal St, dense downtown OSM footprints!)
   const [selectedTileId, setSelectedTileId] = useState<string>('B2');
   const [hoveredTileId, setHoveredTileId] = useState<string | null>(null);
 
   const [scaleKey, setScaleKey] = useState<ScaleKey>('1:5000');
   const [lastExport, setLastExport] = useState<StlExportResult | null>(null);
-
-  const [droneActive, setDroneActive] = useState<boolean>(false);
-  const [droneTarget, setDroneTarget] = useState<DroneTargetId>('cityHall');
-  const [droneAltitudeM, setDroneAltitudeM] = useState<number>(80);
-  const [droneSensorId, setDroneSensorId] = useState<string>(DRONE_SENSORS[0].id);
 
   // Live OpenStreetMap per-tile cache & loading state
   const [osmByTile, setOsmByTile] = useState<Record<string, TileOsmPayload>>({});
@@ -177,46 +169,28 @@ export default function App() {
     setActiveLandmarkId(null);
     if (presetId === 'printBed') {
       setExplodeAmount(0.82);
-    } else if (presetId === 'overview' && explodeAmount > 0.5) {
-      setExplodeAmount(0.08);
+    } else if (presetId === 'overview' && explodeAmount > 0.01) {
+      setExplodeAmount(0);
     }
     viewportRef.current?.flyToPreset(presetId);
   };
 
   const handleClearLandmark = () => {
     setActiveLandmarkId(null);
-    setExplodeAmount(0.08);
+    setExplodeAmount(0);
     viewportRef.current?.flyToPreset('overview');
   };
 
   const handleSelectTile = (tileId: string) => {
-    setSelectedTileId(tileId);
-    const tile = TAGUM_TILES.find((t) => t.id === tileId);
-    if (activeLandmarkId && tile?.landmarkId !== activeLandmarkId) {
+    // Avoid snapping away if clicking the ground of the tile whose landmark is actively being inspected
+    if (activeLandmark && activeLandmark.tileId === tileId) {
+      return;
+    }
+    if (activeLandmarkId) {
       setActiveLandmarkId(null);
     }
-  };
-
-  const handleToggleDrone = (active: boolean) => {
-    setDroneActive(active);
-    if (active) {
-      const targetCfg = DRONE_TARGETS[droneTarget];
-      setActiveLandmarkId(droneTarget);
-      setExplodeAmount(0);
-      setSelectedTileId(targetCfg.tileId);
-      viewportRef.current?.flyToPreset(droneTarget);
-    }
-  };
-
-  const handleChangeDroneTarget = (target: DroneTargetId) => {
-    setDroneTarget(target);
-    const targetCfg = DRONE_TARGETS[target];
-    setSelectedTileId(targetCfg.tileId);
-    if (droneActive) {
-      setActiveLandmarkId(target);
-      setExplodeAmount(0);
-      viewportRef.current?.flyToPreset(target);
-    }
+    setSelectedTileId(tileId);
+    viewportRef.current?.focusTile(tileId);
   };
 
   const handleExportSelectedStl = () => {
@@ -250,9 +224,6 @@ export default function App() {
         onSelectTile={handleSelectTile}
         onHoverTile={(id) => setHoveredTileId(id)}
         onGeoStatusChange={setGeoStatus}
-        droneActive={droneActive}
-        droneTarget={droneTarget}
-        droneAltitudeM={droneAltitudeM}
       />
 
       {/* Minimal Top-Left Real-World Geospatial Header (Zero-Pill, No Backdrop Filter) */}
@@ -340,14 +311,6 @@ export default function App() {
         onExportSelectedStl={handleExportSelectedStl}
         onExportCoreStl={handleExportCoreStl}
         lastExport={lastExport}
-        droneActive={droneActive}
-        onToggleDrone={handleToggleDrone}
-        droneTarget={droneTarget}
-        onChangeDroneTarget={handleChangeDroneTarget}
-        droneAltitudeM={droneAltitudeM}
-        onChangeDroneAltitudeM={setDroneAltitudeM}
-        droneSensorId={droneSensorId}
-        onChangeDroneSensorId={setDroneSensorId}
         onOpenFieldGuide={() => setGuideOpen(true)}
       />
 

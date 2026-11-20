@@ -6,7 +6,15 @@ export type MaterialMode =
   | 'architecturalPla'
   | 'lidarHypsometric';
 
-export type ActiveLandmarkId = 'freedomPark' | 'cityHall' | 'cathedral' | 'gaisanoMall';
+export type ActiveLandmarkId =
+  | 'freedomPark'
+  | 'cityHall'
+  | 'cathedral'
+  | 'gaisanoMall'
+  | 'robinsonsPlace'
+  | 'big8Hotel'
+  | 'tradeCenter'
+  | 'incTagum';
 
 export type CameraPresetId =
   | 'overview'
@@ -14,12 +22,14 @@ export type CameraPresetId =
   | 'cityHall'
   | 'cathedral'
   | 'gaisanoMall'
+  | 'robinsonsPlace'
+  | 'big8Hotel'
+  | 'tradeCenter'
+  | 'incTagum'
   | 'topGrid'
   | 'printBed';
 
 export type ScaleKey = '1:1000' | '1:2000' | '1:2500' | '1:5000' | '1:10000';
-
-export type DroneTargetId = 'cityHall' | 'cathedral' | 'freedomPark';
 
 export interface VerifiedLandmark {
   id: ActiveLandmarkId;
@@ -72,16 +82,6 @@ export interface GeospatialDataset {
   coverage: string;
   license: string;
   limitation: string;
-}
-
-export interface DroneSensorSpec {
-  id: string;
-  name: string;
-  sensorWidthMm: number;
-  focalLengthMm: number;
-  imageWidthPx: number;
-  shutterType: 'Mechanical Global' | 'Rolling Shutter';
-  maxSurveySpeedMs: string;
 }
 
 export interface CameraPreset {
@@ -156,6 +156,54 @@ export const VERIFIED_LANDMARKS: VerifiedLandmark[] = [
       'Designed by Sol Flores · Contemporary steel-and-glass executive & legislative wings with sweeping curved atrium roof (114 × 81 m)',
     osmMatchPattern: /^City Hall of Tagum$/i,
     footprintRadiusScene: 0.72,
+  },
+  {
+    id: 'robinsonsPlace',
+    name: 'Robinsons Place Tagum',
+    tileId: 'A4',
+    lat: 7.42958,
+    lon: 125.79719,
+    barangay: 'Visayan Village West',
+    architecturalNotes:
+      'Designed by Jonathan O. Gan · "Green City Malling" 3-level complex with clerestory glass atrium, blue/orange fascia & 6 m illuminated Supertrees',
+    osmMatchPattern: /Robinsons Place Tagum/i,
+    footprintRadiusScene: 1.05,
+  },
+  {
+    id: 'big8Hotel',
+    name: 'Big 8 Corporate Hotel',
+    tileId: 'B3',
+    lat: 7.44168,
+    lon: 125.80618,
+    barangay: 'Magugpo South',
+    architecturalNotes:
+      'Flagship 8-storey modern neo-classical luxury hotel along National Highway with vertical pilasters, crowned cornice & resort pool deck',
+    osmMatchPattern: /Big 8 Corporate Hotel/i,
+    footprintRadiusScene: 0.62,
+  },
+  {
+    id: 'tradeCenter',
+    name: 'Tagum City Trade & Cultural Center Pavilion',
+    tileId: 'B2',
+    lat: 7.44934,
+    lon: 125.80408,
+    barangay: 'Magugpo Poblacion',
+    architecturalNotes:
+      'Expansive tropical wide-span arched steel-truss trade halls and civic pavilion along Quezon Street north of Freedom Park (52 × 108 m)',
+    osmMatchPattern: /^(Cultural Center|Trade and|Tagum City Pavillion)/i,
+    footprintRadiusScene: 0.56,
+  },
+  {
+    id: 'incTagum',
+    name: 'Iglesia ni Cristo — Locale of Tagum City',
+    tileId: 'D4',
+    lat: 7.42773,
+    lon: 125.8254,
+    barangay: 'Apokon South',
+    architecturalNotes:
+      'Iconic pristine white & sage neo-Gothic house of worship crowned by towering slender vertical spires, lancet windows & grand sanctuary steps',
+    osmMatchPattern: /Iglesia ni Cristo/i,
+    footprintRadiusScene: 0.42,
   },
 ];
 
@@ -309,7 +357,7 @@ export const GEOSPATIAL_DATASETS: GeospatialDataset[] = [
   },
   {
     name: 'Esri World Imagery & Carto OSM — Live Active',
-    resolution: 'Zoom-15 orthophoto satellite & street map basemaps (~4.7 m/px)',
+    resolution: 'Zoom-17 core (~1.18 m/px) + Zoom-18 focused tile (~0.59 m/px) orthophotos',
     coverage: 'Exact Web Mercator UV alignment onto every 1 km Tagum tile',
     license: 'Reference basemap overlay',
     limitation: '2D orthophoto draping; pair with OSM/Overture footprints for 3D extrusion',
@@ -351,36 +399,6 @@ export const GEOSPATIAL_DATASETS: GeospatialDataset[] = [
   },
 ];
 
-export const DRONE_SENSORS: DroneSensorSpec[] = [
-  {
-    id: 'zenmuse-p1',
-    name: 'DJI Zenmuse P1 (45 MP Full-Frame)',
-    sensorWidthMm: 35.9,
-    focalLengthMm: 35.0,
-    imageWidthPx: 8192,
-    shutterType: 'Mechanical Global',
-    maxSurveySpeedMs: '8–10 m/s',
-  },
-  {
-    id: 'mavic-3e',
-    name: 'DJI Mavic 3 Enterprise (20 MP 4/3")',
-    sensorWidthMm: 17.3,
-    focalLengthMm: 12.29,
-    imageWidthPx: 5280,
-    shutterType: 'Mechanical Global',
-    maxSurveySpeedMs: '6–8 m/s',
-  },
-  {
-    id: 'mini-4-pro',
-    name: 'DJI Mini 4 Pro (12 MP Consumer)',
-    sensorWidthMm: 9.6,
-    focalLengthMm: 6.72,
-    imageWidthPx: 4000,
-    shutterType: 'Rolling Shutter',
-    maxSurveySpeedMs: '1.5–2.0 m/s',
-  },
-];
-
 function landmarkScenePos(id: ActiveLandmarkId): {
   x: number;
   z: number;
@@ -396,15 +414,10 @@ const fpPos = landmarkScenePos('freedomPark');
 const chPos = landmarkScenePos('cityHall');
 const catPos = landmarkScenePos('cathedral');
 const gmPos = landmarkScenePos('gaisanoMall');
-
-export const DRONE_TARGETS: Record<
-  DroneTargetId,
-  { name: string; tileId: string; x: number; z: number; span: number }
-> = {
-  cityHall: { ...chPos, span: 2.4 },
-  cathedral: { ...catPos, span: 2.1 },
-  freedomPark: { ...fpPos, span: 2.2 },
-};
+const robPos = landmarkScenePos('robinsonsPlace');
+const b8Pos = landmarkScenePos('big8Hotel');
+const tcPos = landmarkScenePos('tradeCenter');
+const incPos = landmarkScenePos('incTagum');
 
 // Close architectural framing camera presets so true-scale 1:1 landmarks inspect crisply!
 export const CAMERA_PRESETS: CameraPreset[] = [
@@ -443,6 +456,34 @@ export const CAMERA_PRESETS: CameraPreset[] = [
     landmarkId: 'gaisanoMall',
   },
   {
+    id: 'robinsonsPlace',
+    label: 'Robinsons Place',
+    position: [robPos.x + 1.85, 1.85, robPos.z + 2.15],
+    target: [robPos.x, 0.5, robPos.z],
+    landmarkId: 'robinsonsPlace',
+  },
+  {
+    id: 'big8Hotel',
+    label: 'Big 8 Hotel',
+    position: [b8Pos.x + 1.25, 1.55, b8Pos.z + 1.55],
+    target: [b8Pos.x, 0.6, b8Pos.z],
+    landmarkId: 'big8Hotel',
+  },
+  {
+    id: 'tradeCenter',
+    label: 'Trade Center',
+    position: [tcPos.x + 1.35, 1.45, tcPos.z + 1.55],
+    target: [tcPos.x, 0.55, tcPos.z],
+    landmarkId: 'tradeCenter',
+  },
+  {
+    id: 'incTagum',
+    label: 'INC Tagum',
+    position: [incPos.x + 1.05, 1.4, incPos.z + 1.45],
+    target: [incPos.x, 0.55, incPos.z],
+    landmarkId: 'incTagum',
+  },
+  {
     id: 'topGrid',
     label: 'Top Map',
     position: [0, 48, 0.01],
@@ -455,10 +496,6 @@ export const CAMERA_PRESETS: CameraPreset[] = [
     target: [0, 0, 0],
   },
 ];
-
-export function computeGsdCmPx(sensor: DroneSensorSpec, altitudeM: number): number {
-  return (sensor.sensorWidthMm * altitudeM * 100) / (sensor.focalLengthMm * sensor.imageWidthPx);
-}
 
 export function buildPythonPipelineScript(
   scaleSpec: PrintScaleSpec,

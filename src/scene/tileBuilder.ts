@@ -2,8 +2,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   ActiveLandmarkId,
-  DroneTargetId,
-  DRONE_TARGETS,
   getTileInfoByGrid,
   MaterialMode,
   TagumTileInfo,
@@ -11,10 +9,14 @@ import {
 } from '../data/tagumData';
 import { latLonToScene, SCENE_UNITS_PER_METER } from './geoProjection';
 import {
+  buildBig8CorporateHotel,
   buildChristTheKingCathedral,
   buildFreedomParkComplex,
   buildGaisanoCommercialHub,
+  buildIncTagumChapel,
+  buildRobinsonsPlaceTagum,
   buildTagumCityHall,
+  buildTagumTradeCenter,
 } from './landmarks';
 import { TagumMaterialSet } from './materials';
 import { RealOsmBuilding, TileOsmPayload } from './realGeoLoader';
@@ -28,6 +30,12 @@ import {
   tileCenterWorld,
   WATER_LEVEL_Y,
 } from './terrainMath';
+
+export interface TileLandmarkMount {
+  id: ActiveLandmarkId;
+  group: THREE.Group;
+  worldPos: { x: number; z: number };
+}
 
 export interface BuiltTileEntry {
   info: TagumTileInfo;
@@ -43,12 +51,11 @@ export interface BuiltTileEntry {
   osmLandmarkMeshes: Partial<Record<ActiveLandmarkId, THREE.Mesh>>;
   osmLoaded: boolean;
   osmPayload: TileOsmPayload | null;
-  landmarkId: ActiveLandmarkId | null;
-  landmarkGroup: THREE.Group | null;
-  landmarkWorldPos: { x: number; z: number } | null;
+  landmarks: TileLandmarkMount[];
   selectionFrame: THREE.Group;
   hitboxMesh: THREE.Mesh;
   satTexture: THREE.CanvasTexture | null;
+  satZoomLevel: number;
   mapTexture: THREE.CanvasTexture | null;
 }
 
@@ -64,6 +71,12 @@ export interface TagumCityRig {
   applyBasemapTextures: (
     satMap: Map<string, THREE.CanvasTexture> | null,
     osmMap: Map<string, THREE.CanvasTexture> | null,
+    currentMode: MaterialMode,
+    satZoom?: number,
+  ) => void;
+  applySharpSatelliteToTile: (
+    tileId: string,
+    tex: THREE.CanvasTexture,
     currentMode: MaterialMode,
   ) => void;
   applyRealOsmToTile: (
@@ -644,22 +657,36 @@ export function buildTagumCityScene(
       tileGroup.add(osmGroup);
 
       // 3. Verified Real-GPS Photo-Referenced 1:1 Landmarks (hidden until jumped to!)
-      let landmarkId: ActiveLandmarkId | null = null;
-      let landmarkGroup: THREE.Group | null = null;
-      let landmarkWorldPos: { x: number; z: number } | null = null;
-      const lmInfo = VERIFIED_LANDMARKS.find((l) => l.tileId === info.id);
-      if (lmInfo) {
+      const landmarks: TileLandmarkMount[] = [];
+      const tileLandmarks = VERIFIED_LANDMARKS.filter((l) => l.tileId === info.id);
+      for (const lmInfo of tileLandmarks) {
         const wPos = latLonToScene(lmInfo.lat, lmInfo.lon);
-        landmarkId = lmInfo.id;
-        landmarkWorldPos = wPos;
-        if (lmInfo.id === 'cityHall') {
-          landmarkGroup = buildTagumCityHall(materials, shadowMap);
-        } else if (lmInfo.id === 'cathedral') {
-          landmarkGroup = buildChristTheKingCathedral(materials, shadowMap);
-        } else if (lmInfo.id === 'freedomPark') {
-          landmarkGroup = buildFreedomParkComplex(materials, shadowMap);
-        } else if (lmInfo.id === 'gaisanoMall') {
-          landmarkGroup = buildGaisanoCommercialHub(materials, shadowMap);
+        let landmarkGroup: THREE.Group | null = null;
+        switch (lmInfo.id) {
+          case 'cityHall':
+            landmarkGroup = buildTagumCityHall(materials, shadowMap);
+            break;
+          case 'cathedral':
+            landmarkGroup = buildChristTheKingCathedral(materials, shadowMap);
+            break;
+          case 'freedomPark':
+            landmarkGroup = buildFreedomParkComplex(materials, shadowMap);
+            break;
+          case 'gaisanoMall':
+            landmarkGroup = buildGaisanoCommercialHub(materials, shadowMap);
+            break;
+          case 'robinsonsPlace':
+            landmarkGroup = buildRobinsonsPlaceTagum(materials, shadowMap);
+            break;
+          case 'big8Hotel':
+            landmarkGroup = buildBig8CorporateHotel(materials, shadowMap);
+            break;
+          case 'tradeCenter':
+            landmarkGroup = buildTagumTradeCenter(materials, shadowMap);
+            break;
+          case 'incTagum':
+            landmarkGroup = buildIncTagumChapel(materials, shadowMap);
+            break;
         }
         if (landmarkGroup) {
           landmarkGroup.position.set(
@@ -670,6 +697,11 @@ export function buildTagumCityScene(
           landmarkGroup.visible = false;
           landmarkGroup.scale.setScalar(0.001);
           tileGroup.add(landmarkGroup);
+          landmarks.push({
+            id: lmInfo.id,
+            group: landmarkGroup,
+            worldPos: wPos,
+          });
         }
       }
 
@@ -703,12 +735,11 @@ export function buildTagumCityScene(
         osmLandmarkMeshes: {},
         osmLoaded: false,
         osmPayload: null,
-        landmarkId,
-        landmarkGroup,
-        landmarkWorldPos,
+        landmarks,
         selectionFrame,
         hitboxMesh,
         satTexture: null,
+        satZoomLevel: 0,
         mapTexture: null,
       });
     }
@@ -820,12 +851,9 @@ export function buildTagumCityScene(
       tile.skirtMesh.geometry.dispose();
       tile.skirtMesh.geometry = newSkirtGeo;
 
-      // Ground hero landmark cleanly onto the real DEM elevation
-      if (tile.landmarkGroup && tile.landmarkWorldPos) {
-        tile.landmarkGroup.position.y = getTagumElevation(
-          tile.landmarkWorldPos.x,
-          tile.landmarkWorldPos.z,
-        );
+      // Ground hero landmarks cleanly onto the real DEM elevation
+      for (const lm of tile.landmarks) {
+        lm.group.position.y = getTagumElevation(lm.worldPos.x, lm.worldPos.z);
       }
 
       // Refresh selection border heights
@@ -843,11 +871,19 @@ export function buildTagumCityScene(
     satMap: Map<string, THREE.CanvasTexture> | null,
     osmMap: Map<string, THREE.CanvasTexture> | null,
     mode: MaterialMode,
+    satZoom = 16,
   ) => {
     for (const tile of tiles) {
       if (satMap) {
-        tile.satTexture?.dispose();
-        tile.satTexture = satMap.get(tile.info.id) ?? null;
+        const nextSat = satMap.get(tile.info.id) ?? null;
+        if (nextSat && satZoom >= tile.satZoomLevel) {
+          tile.satTexture?.dispose();
+          tile.satTexture = nextSat;
+          tile.satZoomLevel = satZoom;
+        } else if (nextSat) {
+          // Tile already upgraded to a sharper zoom tier (e.g. Zoom 18) — keep existing sharp texture
+          nextSat.dispose();
+        }
       }
       if (osmMap) {
         tile.mapTexture?.dispose();
@@ -855,6 +891,25 @@ export function buildTagumCityScene(
       }
     }
     updateVisualMode(mode);
+  };
+
+  const applySharpSatelliteToTile = (
+    tileId: string,
+    tex: THREE.CanvasTexture,
+    mode: MaterialMode,
+  ) => {
+    const tile = tiles.find((t) => t.info.id === tileId);
+    if (!tile) {
+      tex.dispose();
+      return;
+    }
+    tile.satTexture?.dispose();
+    tile.satTexture = tex;
+    tile.satZoomLevel = 18;
+    if (mode === 'satelliteOsm') {
+      tile.terrainMaterial.map = tex;
+      tile.terrainMaterial.needsUpdate = true;
+    }
   };
 
   const applyRealOsmToTile = (
@@ -952,43 +1007,8 @@ export function buildTagumCityScene(
     setActiveLandmark,
     applyRealElevationToAllTiles,
     applyBasemapTextures,
+    applySharpSatelliteToTile,
     applyRealOsmToTile,
     dispose,
   };
-}
-
-export function buildCrosshatchWaypoints(
-  targetId: DroneTargetId,
-  altitudeM: number,
-): THREE.Vector3[] {
-  const cfg = DRONE_TARGETS[targetId];
-  const groundY = getTagumElevation(cfg.x, cfg.z);
-  const flightY = groundY + 0.72 + (altitudeM - 60) * 0.012;
-  const half = cfg.span / 2;
-  const lines = 4;
-  const step = cfg.span / (lines - 1);
-
-  const waypoints: THREE.Vector3[] = [];
-  for (let i = 0; i < lines; i++) {
-    const z = cfg.z - half + i * step;
-    if (i % 2 === 0) {
-      waypoints.push(new THREE.Vector3(cfg.x - half, flightY, z));
-      waypoints.push(new THREE.Vector3(cfg.x + half, flightY, z));
-    } else {
-      waypoints.push(new THREE.Vector3(cfg.x + half, flightY, z));
-      waypoints.push(new THREE.Vector3(cfg.x - half, flightY, z));
-    }
-  }
-  for (let i = 0; i < lines; i++) {
-    const x = cfg.x - half + i * step;
-    if (i % 2 === 0) {
-      waypoints.push(new THREE.Vector3(x, flightY + 0.1, cfg.z + half));
-      waypoints.push(new THREE.Vector3(x, flightY + 0.1, cfg.z - half));
-    } else {
-      waypoints.push(new THREE.Vector3(x, flightY + 0.1, cfg.z - half));
-      waypoints.push(new THREE.Vector3(x, flightY + 0.1, cfg.z + half));
-    }
-  }
-  waypoints.push(waypoints[0].clone());
-  return waypoints;
 }

@@ -670,74 +670,773 @@ export function buildGaisanoCommercialHub(
 }
 
 /**
- * 5. Composite 10-Part Photogrammetry Mapping Drone (RTK Quadcopter + 45° Oblique Camera Frustum)
+ * 5. Robinsons Place Tagum (Brgy. Visayan Village West — 7.42958°N, 125.79719°E)
+ * Photo-referenced to Architect Jonathan O. Gan's "Green City Malling" design along National Highway:
+ * - 3-level off-white & cool-gray modern commercial complex rotated ~38° parallel to Daang Maharlika
+ * - Double-height clerestory glass atrium entrance with Robinsons cobalt-blue & vibrant-orange fascia crown
+ * - Signature front al fresco plaza lined with 6-meter sculptural illuminated "Supertrees" & tropical palms
+ * - Elevated cinema penthouse block and multi-level rear parking wing
  */
-export function buildPhotogrammetryDrone(materials: TagumMaterialSet): {
-  group: THREE.Group;
-  rotors: THREE.Mesh[];
-  frustum: THREE.Mesh;
-} {
+export function buildRobinsonsPlaceTagum(
+  materials: TagumMaterialSet,
+  shadowMap: THREE.Texture,
+): THREE.Group {
   const group = new THREE.Group();
-  group.name = 'Photogrammetry_RTK_Drone';
+  group.name = 'Robinsons_Place_Tagum';
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.085, 0.34), materials.droneBody);
-  group.add(body);
+  const container = new THREE.Group();
+  // Match real OSM footprint bearing (~38° along National Highway in Visayan Village)
+  container.rotation.y = (38 * Math.PI) / 180;
+  group.add(container);
 
-  const rtkStem = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.014, 0.018, 0.08, 8),
-    materials.landmarkSteel,
+  const wallLightMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#eef0f3'),
+    roughness: 0.62,
+    metalness: 0.06,
+  });
+  const wallSlateMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#b6bfc9'),
+    roughness: 0.56,
+    metalness: 0.14,
+  });
+  const robinsonsBlueMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#134b9f'),
+    roughness: 0.36,
+    metalness: 0.24,
+  });
+  const robinsonsOrangeMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#f16618'),
+    roughness: 0.38,
+    metalness: 0.18,
+  });
+  const atriumGlassMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color('#2c5f7c'),
+    roughness: 0.1,
+    metalness: 0.26,
+    clearcoat: 0.85,
+  });
+  const superTreeTrunkMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#5a6872'),
+    roughness: 0.45,
+    metalness: 0.55,
+  });
+  const superTreeGlowMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#34d399'),
+    emissive: new THREE.Color('#fbbf24'),
+    emissiveIntensity: 0.55,
+    roughness: 0.35,
+  });
+
+  const plazaStoneMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#c8cdd4'),
+    roughness: 0.85,
+    metalness: 0.02,
+  });
+  const tropicalFoliageMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#2d6b41'),
+    roughness: 0.86,
+    metalness: 0.02,
+  });
+
+  addContactShadow(container, shadowMap, 1.75, 1.38);
+
+  // Paved al fresco plaza & National Highway drop-off apron
+  const plaza = new THREE.Mesh(
+    new THREE.BoxGeometry(1.56, 0.024, 1.18),
+    plazaStoneMat,
   );
-  rtkStem.position.set(0, 0.08, -0.03);
-  group.add(rtkStem);
+  plaza.position.set(0, 0.012, 0.02);
+  container.add(plaza);
 
-  const rtkDome = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.055, 0.035, 14),
-    materials.droneAccent,
+  // Main 3-level commercial mall block (~136 m x 76 m)
+  const mainMall = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.165, 0.72), wallLightMat);
+  mainMall.position.set(0, 0.095, -0.1);
+  container.add(mainMall);
+
+  // Mid-level horizontal cool-gray architectural reveal band
+  const midBand = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.026, 0.735), wallSlateMat);
+  midBand.position.set(0, 0.092, -0.1);
+  container.add(midBand);
+
+  // Signature Robinsons Cobalt-Blue parapet fascia + Vibrant-Orange lower accent ribbon
+  const blueFascia = new THREE.Mesh(
+    new THREE.BoxGeometry(1.39, 0.026, 0.745),
+    robinsonsBlueMat,
   );
-  rtkDome.position.set(0, 0.125, -0.03);
-  group.add(rtkDome);
+  blueFascia.position.set(0, 0.184, -0.1);
+  container.add(blueFascia);
 
-  const rotors: THREE.Mesh[] = [];
-  const armAngles = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
-  const armGeo = new THREE.CylinderGeometry(0.015, 0.018, 0.34, 8);
-  armGeo.rotateZ(Math.PI / 2);
-  const motorGeo = new THREE.CylinderGeometry(0.032, 0.032, 0.045, 10);
-  const rotorGeo = new THREE.CircleGeometry(0.15, 16);
-  rotorGeo.rotateX(-Math.PI / 2);
+  const orangeRibbon = new THREE.Mesh(
+    new THREE.BoxGeometry(1.395, 0.014, 0.75),
+    robinsonsOrangeMat,
+  );
+  orangeRibbon.position.set(0, 0.165, -0.1);
+  container.add(orangeRibbon);
 
-  for (const ang of armAngles) {
-    const arm = new THREE.Mesh(armGeo, materials.droneBody);
-    arm.position.set(Math.cos(ang) * 0.17, 0.01, Math.sin(ang) * 0.17);
-    arm.rotation.y = -ang;
-    group.add(arm);
+  // Projecting central full-height Clerestory Glass Atrium & Main Highway Portal
+  const atriumFrame = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.21, 0.14), wallSlateMat);
+  atriumFrame.position.set(0, 0.118, 0.28);
+  container.add(atriumFrame);
 
-    const mx = Math.cos(ang) * 0.3;
-    const mz = Math.sin(ang) * 0.3;
-    const motor = new THREE.Mesh(motorGeo, materials.droneAccent);
-    motor.position.set(mx, 0.032, mz);
-    group.add(motor);
+  const atriumGlass = new THREE.Mesh(
+    new THREE.BoxGeometry(0.41, 0.185, 0.15),
+    atriumGlassMat,
+  );
+  atriumGlass.position.set(0, 0.112, 0.285);
+  container.add(atriumGlass);
 
-    const rotor = new THREE.Mesh(rotorGeo, materials.droneRotor);
-    rotor.position.set(mx, 0.06, mz);
-    group.add(rotor);
-    rotors.push(rotor);
+  // Vertical glass atrium mullions
+  const mullionGeo = new THREE.BoxGeometry(0.01, 0.19, 0.016);
+  for (let i = -3; i <= 3; i++) {
+    const mullion = new THREE.Mesh(mullionGeo, materials.landmarkSteel);
+    mullion.position.set(i * 0.058, 0.114, 0.358);
+    container.add(mullion);
   }
 
-  const gimbal = new THREE.Mesh(
-    new THREE.BoxGeometry(0.095, 0.075, 0.11),
-    materials.landmarkSteel,
+  // Prominent Robinsons Portal Crown & cantilevered drop-off canopy
+  const portalCrownBlue = new THREE.Mesh(
+    new THREE.BoxGeometry(0.49, 0.036, 0.17),
+    robinsonsBlueMat,
   );
-  gimbal.position.set(0, -0.075, 0.07);
-  gimbal.rotation.x = Math.PI * 0.25;
-  group.add(gimbal);
+  portalCrownBlue.position.set(0, 0.232, 0.285);
+  container.add(portalCrownBlue);
 
-  const frustumGeo = new THREE.ConeGeometry(0.75, 1.9, 4, 1, true);
-  frustumGeo.rotateY(Math.PI / 4);
-  frustumGeo.translate(0, -0.95, 0);
-  const frustum = new THREE.Mesh(frustumGeo, materials.droneFrustum);
-  frustum.position.set(0, -0.1, 0.08);
-  frustum.rotation.x = -Math.PI * 0.18;
-  group.add(frustum);
+  const portalAccentOrange = new THREE.Mesh(
+    new THREE.BoxGeometry(0.32, 0.016, 0.02),
+    robinsonsOrangeMat,
+  );
+  portalAccentOrange.position.set(0, 0.232, 0.372);
+  container.add(portalAccentOrange);
 
-  return { group, rotors, frustum };
+  const dropOffCanopy = new THREE.Mesh(
+    new THREE.BoxGeometry(0.52, 0.016, 0.14),
+    wallLightMat,
+  );
+  dropOffCanopy.position.set(0, 0.072, 0.39);
+  container.add(dropOffCanopy);
+
+  // Elevated Cinema Penthouse & Skylight Clerestory Monitor on roof
+  const cinemaBlock = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.068, 0.34), wallSlateMat);
+  cinemaBlock.position.set(-0.24, 0.228, -0.14);
+  container.add(cinemaBlock);
+
+  const skylightMonitor = new THREE.Mesh(
+    new THREE.BoxGeometry(0.42, 0.045, 0.18),
+    atriumGlassMat,
+  );
+  skylightMonitor.position.set(0.24, 0.215, -0.05);
+  container.add(skylightMonitor);
+
+  // Rear / East Annex & Covered Parking Wing
+  const parkingWing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.125, 0.36), wallSlateMat);
+  parkingWing.position.set(0.46, 0.075, -0.52);
+  container.add(parkingWing);
+
+  // Signature 6-Meter Illuminated Sculptural "Supertrees" lining the front Al Fresco Plaza
+  const trunkGeo = new THREE.CylinderGeometry(0.012, 0.022, 0.095, 8);
+  const canopyGeo = new THREE.CylinderGeometry(0.068, 0.014, 0.038, 10, 1, false);
+  const ringGeo = new THREE.TorusGeometry(0.056, 0.005, 6, 14);
+  ringGeo.rotateX(Math.PI / 2);
+
+  for (const sx of [-0.54, -0.32, 0.32, 0.54, 0.0]) {
+    const sz = sx === 0 ? 0.52 : 0.45;
+    const treeGroup = new THREE.Group();
+    treeGroup.position.set(sx, 0.024, sz);
+
+    const trunk = new THREE.Mesh(trunkGeo, superTreeTrunkMat);
+    trunk.position.y = 0.048;
+    treeGroup.add(trunk);
+
+    const canopy = new THREE.Mesh(canopyGeo, superTreeGlowMat);
+    canopy.position.y = 0.098;
+    treeGroup.add(canopy);
+
+    const ring = new THREE.Mesh(ringGeo, robinsonsOrangeMat);
+    ring.position.y = 0.112;
+    treeGroup.add(ring);
+
+    container.add(treeGroup);
+  }
+
+  // Green tropical planter strips along highway frontage
+  const bushGeo = new THREE.SphereGeometry(0.032, 7, 6);
+  for (const [bx, bz] of [
+    [-0.66, 0.46],
+    [-0.43, 0.48],
+    [0.43, 0.48],
+    [0.66, 0.46],
+    [-0.68, 0.14],
+    [0.68, 0.14],
+  ]) {
+    const bush = new THREE.Mesh(bushGeo, tropicalFoliageMat);
+    bush.scale.set(1.2, 0.78, 1.2);
+    bush.position.set(bx, 0.045, bz);
+    container.add(bush);
+  }
+
+  enableShadows(group);
+  return group;
 }
+
+/**
+ * 6. Big 8 Corporate Hotel (Brgy. Magugpo South — 7.44168°N, 125.80618°E)
+ * Photo-referenced to Tagum City's flagship 8-storey modern neo-classical luxury hotel:
+ * - Warm cream & travertine 8-storey tower rotated ~43° facing Daang Maharlika (National Highway)
+ * - Formal rhythm of slender vertical classical pilasters & dark bronze-tinted guestroom window grids
+ * - Stepped dentil cornice crown, classical rooftop pediment & gold crest fascia
+ * - Grand highway porte-cochère, adjacent ballroom podium & landscaped tropical swimming pool courtyard
+ */
+export function buildBig8CorporateHotel(
+  materials: TagumMaterialSet,
+  shadowMap: THREE.Texture,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'Big_8_Corporate_Hotel';
+
+  const container = new THREE.Group();
+  // Aligned to National Highway frontage (~43° azimuth)
+  container.rotation.y = (43 * Math.PI) / 180;
+  group.add(container);
+
+  const creamStoneMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#eae0cc'),
+    roughness: 0.66,
+    metalness: 0.04,
+  });
+  const warmTrimMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#d2c0a1'),
+    roughness: 0.58,
+    metalness: 0.08,
+  });
+  const darkWindowMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color('#1f2c3a'),
+    roughness: 0.12,
+    metalness: 0.32,
+    clearcoat: 0.85,
+  });
+  const bronzeGoldMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#c5963e'),
+    roughness: 0.34,
+    metalness: 0.72,
+  });
+  const deckStoneMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#dfd7c8'),
+    roughness: 0.78,
+    metalness: 0.02,
+  });
+
+  const plazaStoneMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#cbc6bc'),
+    roughness: 0.84,
+    metalness: 0.02,
+  });
+  const tropicalFoliageMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#2b6a40'),
+    roughness: 0.86,
+    metalness: 0.02,
+  });
+
+  addContactShadow(container, shadowMap, 1.12, 0.96);
+
+  // Landscaped hotel compound plinth & driveway apron
+  const compoundBase = new THREE.Mesh(
+    new THREE.BoxGeometry(0.96, 0.022, 0.82),
+    plazaStoneMat,
+  );
+  compoundBase.position.set(0, 0.011, 0);
+  container.add(compoundBase);
+
+  // 1. 2-Storey Grand Lobby & Ballroom Podium Base
+  const podium = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.092, 0.42), creamStoneMat);
+  podium.position.set(-0.08, 0.068, -0.1);
+  container.add(podium);
+
+  const podiumCornice = new THREE.Mesh(new THREE.BoxGeometry(0.665, 0.016, 0.445), warmTrimMat);
+  podiumCornice.position.set(-0.08, 0.118, -0.1);
+  container.add(podiumCornice);
+
+  // 2. Flagship 8-Storey Modern Neo-Classical Hotel Tower
+  const towerH = 0.34;
+  const towerW = 0.56;
+  const towerD = 0.28;
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(towerW, towerH, towerD), creamStoneMat);
+  tower.position.set(-0.08, 0.12 + towerH / 2, -0.12);
+  container.add(tower);
+
+  // Recessed dark-glass guestroom window bands across floors 3..8 (front & rear elevations)
+  const floorWinGeo = new THREE.BoxGeometry(towerW - 0.055, 0.026, towerD + 0.008);
+  for (let f = 0; f < 6; f++) {
+    const winBand = new THREE.Mesh(floorWinGeo, darkWindowMat);
+    winBand.position.set(-0.08, 0.155 + f * 0.048, -0.12);
+    container.add(winBand);
+  }
+
+  // Formal Neo-Classical Vertical Pilasters framing the 8-storey facade bays
+  const pilasterGeo = new THREE.BoxGeometry(0.022, towerH + 0.02, towerD + 0.022);
+  for (let i = -3; i <= 3; i++) {
+    const pilaster = new THREE.Mesh(pilasterGeo, warmTrimMat);
+    pilaster.position.set(-0.08 + i * 0.086, 0.12 + towerH / 2, -0.12);
+    container.add(pilaster);
+  }
+
+  // Stepped Classical Dentil Cornice Crown & Rooftop Pediment
+  const crownBase = new THREE.Mesh(
+    new THREE.BoxGeometry(towerW + 0.045, 0.022, towerD + 0.045),
+    warmTrimMat,
+  );
+  crownBase.position.set(-0.08, 0.468, -0.12);
+  container.add(crownBase);
+
+  const crownCap = new THREE.Mesh(
+    new THREE.BoxGeometry(towerW + 0.068, 0.016, towerD + 0.068),
+    creamStoneMat,
+  );
+  crownCap.position.set(-0.08, 0.486, -0.12);
+  container.add(crownCap);
+
+  // Central Rooftop Penthouse & Gold "BIG 8" Sign Crest
+  const penthouse = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.055, 0.16), creamStoneMat);
+  penthouse.position.set(-0.08, 0.518, -0.12);
+  container.add(penthouse);
+
+  const goldCrest = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.024, 0.018), bronzeGoldMat);
+  goldCrest.position.set(-0.08, 0.516, -0.036);
+  container.add(goldCrest);
+
+  // 3. Grand Cantilevered Highway Porte-Cochère with Classical Columns
+  const porteRoof = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.024, 0.14), warmTrimMat);
+  porteRoof.position.set(-0.08, 0.095, 0.16);
+  container.add(porteRoof);
+
+  const porteGoldTrim = new THREE.Mesh(new THREE.BoxGeometry(0.246, 0.008, 0.146), bronzeGoldMat);
+  porteGoldTrim.position.set(-0.08, 0.106, 0.16);
+  container.add(porteGoldTrim);
+
+  const colGeo = new THREE.CylinderGeometry(0.012, 0.014, 0.075, 10);
+  for (const cx of [-0.18, 0.02]) {
+    const col = new THREE.Mesh(colGeo, creamStoneMat);
+    col.position.set(cx, 0.056, 0.21);
+    container.add(col);
+  }
+
+  // 4. Adjacent Resort-Style Outdoor Swimming Pool Courtyard & Tropical Palms
+  const poolDeck = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.018, 0.44), deckStoneMat);
+  poolDeck.position.set(0.31, 0.028, 0.08);
+  container.add(poolDeck);
+
+  const poolWater = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.022, 0.31), materials.water);
+  poolWater.position.set(0.31, 0.031, 0.08);
+  container.add(poolWater);
+
+  // Poolside Gazebo / Cabana Pavilion
+  const cabanaBase = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.048, 0.11), warmTrimMat);
+  cabanaBase.position.set(0.31, 0.06, -0.2);
+  container.add(cabanaBase);
+
+  const cabanaRoof = new THREE.Mesh(new THREE.ConeGeometry(0.092, 0.042, 4), bronzeGoldMat);
+  cabanaRoof.rotation.y = Math.PI / 4;
+  cabanaRoof.position.set(0.31, 0.104, -0.2);
+  container.add(cabanaRoof);
+
+  // Palm & tropical hedge accents framing courtyard and highway drive
+  const palmGeo = new THREE.SphereGeometry(0.03, 7, 6);
+  for (const [px, pz] of [
+    [0.42, 0.26],
+    [0.42, -0.04],
+    [0.18, 0.28],
+    [-0.36, 0.26],
+    [-0.38, -0.32],
+  ]) {
+    const palm = new THREE.Mesh(palmGeo, tropicalFoliageMat);
+    palm.scale.set(1.15, 0.9, 1.15);
+    palm.position.set(px, 0.054, pz);
+    container.add(palm);
+  }
+
+  enableShadows(group);
+  return group;
+}
+
+/**
+ * 7. Tagum City Trade & Cultural Center Pavilion (Brgy. Magugpo Poblacion — 7.44934°N, 125.80408°E)
+ * Photo-referenced to the twin wide-span tropical trade halls & civic arena along Quezon St (north of Freedom Park):
+ * - Real footprint ~52 m × 108 m (0.52 × 1.08 scene units) aligned pure North–South along Quezon St
+ * - Sweeping vaulted arched steel-truss roofs with raised ventilated clerestory ridge monitors
+ * - Crisp white concrete perimeter colonnades, crimson-terracotta civic trim bands & grand entrance canopy
+ */
+export function buildTagumTradeCenter(
+  materials: TagumMaterialSet,
+  shadowMap: THREE.Texture,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'Tagum_Trade_Cultural_Center_Pavilion';
+
+  const whiteConcreteMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#f1f3f5'),
+    roughness: 0.72,
+    metalness: 0.04,
+  });
+  const roofMetalMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#d2dae2'),
+    roughness: 0.38,
+    metalness: 0.56,
+  });
+  const civicCrimsonMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#9e2b2b'),
+    roughness: 0.46,
+    metalness: 0.16,
+  });
+  const darkClerestoryMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color('#274052'),
+    roughness: 0.15,
+    metalness: 0.25,
+    clearcoat: 0.75,
+  });
+
+  const plazaStoneMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#c7ccd2'),
+    roughness: 0.86,
+    metalness: 0.02,
+  });
+  const tropicalFoliageMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#2e6c42'),
+    roughness: 0.86,
+    metalness: 0.02,
+  });
+
+  addContactShadow(group, shadowMap, 0.72, 1.24);
+
+  // Paved Quezon Street civic exhibition apron
+  const apron = new THREE.Mesh(
+    new THREE.BoxGeometry(0.62, 0.022, 1.14),
+    plazaStoneMat,
+  );
+  apron.position.y = 0.011;
+  group.add(apron);
+
+  // Helper to extrude a curved wide-span tropical arched steel-truss hall roof
+  const createArchedHall = (widthX: number, lengthZ: number, wallH: number, archRise: number) => {
+    const hall = new THREE.Group();
+
+    // Recessed perimeter exhibition walls + shaded glass clerestory band
+    const lowerWall = new THREE.Mesh(
+      new THREE.BoxGeometry(widthX - 0.06, wallH, lengthZ - 0.06),
+      whiteConcreteMat,
+    );
+    lowerWall.position.y = 0.022 + wallH / 2;
+    hall.add(lowerWall);
+
+    const glassBand = new THREE.Mesh(
+      new THREE.BoxGeometry(widthX - 0.045, 0.028, lengthZ - 0.045),
+      darkClerestoryMat,
+    );
+    glassBand.position.y = 0.022 + wallH - 0.018;
+    hall.add(glassBand);
+
+    // Exterior white concrete colonnade piers along East & West walkways
+    const pierGeo = new THREE.BoxGeometry(0.024, wallH + 0.016, 0.026);
+    const pierCount = Math.max(4, Math.round(lengthZ / 0.11));
+    for (let i = 0; i <= pierCount; i++) {
+      const pz = -lengthZ / 2 + 0.03 + (i / pierCount) * (lengthZ - 0.06);
+      for (const side of [-1, 1]) {
+        const pier = new THREE.Mesh(pierGeo, whiteConcreteMat);
+        pier.position.set(side * (widthX / 2 - 0.014), 0.022 + wallH / 2, pz);
+        hall.add(pier);
+      }
+    }
+
+    // Sweeping arched barrel steel-truss roof shell
+    const archShape = new THREE.Shape();
+    const halfW = widthX / 2 + 0.035;
+    archShape.moveTo(-halfW, 0);
+    archShape.quadraticCurveTo(0, archRise, halfW, 0);
+    archShape.lineTo(halfW, 0.018);
+    archShape.quadraticCurveTo(0, archRise + 0.018, -halfW, 0.018);
+    archShape.closePath();
+
+    const roofGeo = new THREE.ExtrudeGeometry(archShape, {
+      depth: lengthZ + 0.04,
+      bevelEnabled: false,
+      curveSegments: 14,
+    });
+    roofGeo.translate(0, 0, -(lengthZ + 0.04) / 2);
+    const roofMesh = new THREE.Mesh(roofGeo, roofMetalMat);
+    roofMesh.position.y = 0.022 + wallH;
+    hall.add(roofMesh);
+
+    // Crimson civic eave trim beams along both sides
+    const eaveGeo = new THREE.BoxGeometry(0.02, 0.018, lengthZ + 0.045);
+    for (const side of [-1, 1]) {
+      const eave = new THREE.Mesh(eaveGeo, civicCrimsonMat);
+      eave.position.set(side * halfW, 0.022 + wallH + 0.008, 0);
+      hall.add(eave);
+    }
+
+    // Raised ventilated clerestory ridge monitor running full length of hall
+    const ridgeBase = new THREE.Mesh(
+      new THREE.BoxGeometry(widthX * 0.24, 0.022, lengthZ - 0.06),
+      darkClerestoryMat,
+    );
+    ridgeBase.position.y = 0.022 + wallH + archRise * 0.52 + 0.014;
+    hall.add(ridgeBase);
+
+    const ridgeCap = new THREE.Mesh(
+      new THREE.BoxGeometry(widthX * 0.3, 0.012, lengthZ - 0.02),
+      roofMetalMat,
+    );
+    ridgeCap.position.y = 0.022 + wallH + archRise * 0.52 + 0.028;
+    hall.add(ridgeCap);
+
+    return hall;
+  };
+
+  // North Main Arena / Cultural Pavilion Hall
+  const northHall = createArchedHall(0.46, 0.52, 0.115, 0.11);
+  northHall.position.set(0, 0, -0.24);
+  group.add(northHall);
+
+  // South Trade & Expo Hall linked seamlessly via covered civic breezeway
+  const southHall = createArchedHall(0.42, 0.42, 0.095, 0.088);
+  southHall.position.set(0, 0, 0.29);
+  group.add(southHall);
+
+  // Central Breezeway Connector & Grand Quezon St Entrance Canopy
+  const connectorRoof = new THREE.Mesh(
+    new THREE.BoxGeometry(0.48, 0.02, 0.14),
+    civicCrimsonMat,
+  );
+  connectorRoof.position.set(0, 0.115, 0.04);
+  group.add(connectorRoof);
+
+  const westCanopy = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.016, 0.24), roofMetalMat);
+  westCanopy.position.set(-0.27, 0.098, 0.04);
+  group.add(westCanopy);
+
+  // Landscaped perimeter trees framing Quezon Street & Pioneer Avenue
+  const treeGeo = new THREE.SphereGeometry(0.032, 7, 6);
+  for (const [tx, tz] of [
+    [-0.27, -0.44],
+    [-0.27, -0.22],
+    [-0.27, 0.32],
+    [0.27, -0.4],
+    [0.27, 0.05],
+    [0.27, 0.44],
+  ]) {
+    const tree = new THREE.Mesh(treeGeo, tropicalFoliageMat);
+    tree.scale.set(1.1, 0.85, 1.1);
+    tree.position.set(tx, 0.052, tz);
+    group.add(tree);
+  }
+
+  enableShadows(group);
+  return group;
+}
+
+/**
+ * 8. Iglesia ni Cristo — Locale of Tagum City (Brgy. Apokon — 7.42773°N, 125.82540°E)
+ * Photo-referenced to the iconic neo-Gothic Iglesia ni Cristo house of worship architecture:
+ * - Pristine white walls accented with pastel sage-green panels & pointed Gothic gables
+ * - Soaring twin front slender spires, taller central pinnacle spire & flanking side turret pinnacles
+ * - Rhythmic vertical exterior buttress pilasters & pointed Gothic lancet clerestory windows
+ * - Wide elevated sanctuary steps and manicured gated tropical courtyard
+ */
+export function buildIncTagumChapel(
+  materials: TagumMaterialSet,
+  shadowMap: THREE.Texture,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'Iglesia_ni_Cristo_Tagum';
+
+  const pristineWhiteMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#f6f8f9'),
+    roughness: 0.56,
+    metalness: 0.04,
+  });
+  const sageGreenMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#88b39a'),
+    roughness: 0.52,
+    metalness: 0.08,
+  });
+  const roofSageMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#6b967e'),
+    roughness: 0.46,
+    metalness: 0.14,
+  });
+  const lancetGlassMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color('#27485d'),
+    emissive: new THREE.Color('#f5d08a'),
+    emissiveIntensity: 0.22,
+    roughness: 0.14,
+    metalness: 0.2,
+    clearcoat: 0.85,
+  });
+
+  const plazaStoneMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#cfd5d8'),
+    roughness: 0.84,
+    metalness: 0.02,
+  });
+  const tropicalFoliageMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#2c6d42'),
+    roughness: 0.85,
+    metalness: 0.02,
+  });
+
+  addContactShadow(group, shadowMap, 0.62, 0.78);
+
+  // Manicured compound plaza & stepped sanctuary plinth
+  const courtyard = new THREE.Mesh(
+    new THREE.BoxGeometry(0.52, 0.02, 0.68),
+    plazaStoneMat,
+  );
+  courtyard.position.y = 0.01;
+  group.add(courtyard);
+
+  const steps1 = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.018, 0.52), pristineWhiteMat);
+  steps1.position.set(0, 0.028, 0.02);
+  group.add(steps1);
+
+  const steps2 = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.018, 0.48), pristineWhiteMat);
+  steps2.position.set(0, 0.044, 0.01);
+  group.add(steps2);
+
+  // Main Sanctuary Nave Body
+  const naveW = 0.24;
+  const naveH = 0.165;
+  const naveL = 0.4;
+  const nave = new THREE.Mesh(new THREE.BoxGeometry(naveW, naveH, naveL), pristineWhiteMat);
+  nave.position.set(0, 0.052 + naveH / 2, -0.02);
+  group.add(nave);
+
+  // Subtle pastel sage horizontal base plinth & upper frieze along nave
+  const sageFrieze = new THREE.Mesh(
+    new THREE.BoxGeometry(naveW + 0.008, 0.022, naveL + 0.008),
+    sageGreenMat,
+  );
+  sageFrieze.position.set(0, 0.052 + naveH - 0.022, -0.02);
+  group.add(sageFrieze);
+
+  // Pitched Neo-Gothic Sanctuary Gable Roof
+  const gableShape = new THREE.Shape();
+  gableShape.moveTo(-naveW / 2 - 0.018, 0);
+  gableShape.lineTo(0, 0.105);
+  gableShape.lineTo(naveW / 2 + 0.018, 0);
+  gableShape.closePath();
+
+  const gableGeo = new THREE.ExtrudeGeometry(gableShape, {
+    depth: naveL + 0.024,
+    bevelEnabled: false,
+  });
+  gableGeo.translate(0, 0, -(naveL + 0.024) / 2);
+  const gableRoof = new THREE.Mesh(gableGeo, roofSageMat);
+  gableRoof.position.set(0, 0.052 + naveH, -0.02);
+  group.add(gableRoof);
+
+  // Helper to construct iconic slender tapered Iglesia ni Cristo Neo-Gothic Spires
+  const buildSpire = (
+    x: number,
+    z: number,
+    baseY: number,
+    shaftW: number,
+    shaftH: number,
+    needleH: number,
+  ) => {
+    const spire = new THREE.Group();
+    spire.position.set(x, baseY, z);
+
+    const shaft = new THREE.Mesh(
+      new THREE.BoxGeometry(shaftW, shaftH, shaftW),
+      pristineWhiteMat,
+    );
+    shaft.position.y = shaftH / 2;
+    spire.add(shaft);
+
+    const sageCollar = new THREE.Mesh(
+      new THREE.BoxGeometry(shaftW * 1.14, 0.016, shaftW * 1.14),
+      sageGreenMat,
+    );
+    sageCollar.position.y = shaftH * 0.78;
+    spire.add(sageCollar);
+
+    const crownBox = new THREE.Mesh(
+      new THREE.BoxGeometry(shaftW * 0.78, shaftH * 0.24, shaftW * 0.78),
+      pristineWhiteMat,
+    );
+    crownBox.position.y = shaftH + shaftH * 0.12;
+    spire.add(crownBox);
+
+    const needle = new THREE.Mesh(
+      new THREE.ConeGeometry(shaftW * 0.44, needleH, 4),
+      pristineWhiteMat,
+    );
+    needle.rotation.y = Math.PI / 4;
+    needle.position.y = shaftH + shaftH * 0.24 + needleH / 2;
+    spire.add(needle);
+
+    const tip = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0018, 0.0032, needleH * 0.35, 6),
+      sageGreenMat,
+    );
+    tip.position.y = shaftH + shaftH * 0.24 + needleH + needleH * 0.14;
+    spire.add(tip);
+
+    return spire;
+  };
+
+  // Grand Front Facade: Tall Central Spire + Twin Flanking Main Towers + Outer Corner Pinnacles
+  group.add(buildSpire(0, 0.185, 0.052, 0.056, 0.245, 0.175));
+  group.add(buildSpire(-0.088, 0.175, 0.052, 0.044, 0.215, 0.135));
+  group.add(buildSpire(0.088, 0.175, 0.052, 0.044, 0.215, 0.135));
+  group.add(buildSpire(-0.132, 0.145, 0.052, 0.028, 0.17, 0.085));
+  group.add(buildSpire(0.132, 0.145, 0.052, 0.028, 0.17, 0.085));
+
+  // Rear Apse Flanking Pinnacles
+  group.add(buildSpire(-0.115, -0.215, 0.052, 0.028, 0.175, 0.095));
+  group.add(buildSpire(0.115, -0.215, 0.052, 0.028, 0.175, 0.095));
+
+  // Front Pointed Entry Portico & Tall Lancet Sanctuary Windows
+  const portico = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.11, 0.055), pristineWhiteMat);
+  portico.position.set(0, 0.106, 0.21);
+  group.add(portico);
+
+  const frontWindow = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.095, 0.014), lancetGlassMat);
+  frontWindow.position.set(0, 0.205, 0.215);
+  group.add(frontWindow);
+
+  // Rhythmic Side Buttress Pilasters + Small Pinnacles + Gothic Lancet Windows
+  const buttressGeo = new THREE.BoxGeometry(0.02, naveH + 0.024, 0.02);
+  const miniPinGeo = new THREE.ConeGeometry(0.012, 0.055, 4);
+  const sideWinGeo = new THREE.BoxGeometry(0.012, 0.092, 0.028);
+
+  for (let i = 0; i < 5; i++) {
+    const bz = -0.17 + i * 0.075;
+    for (const side of [-1, 1]) {
+      const buttress = new THREE.Mesh(buttressGeo, pristineWhiteMat);
+      buttress.position.set(side * (naveW / 2 + 0.008), 0.052 + naveH / 2 + 0.01, bz);
+      group.add(buttress);
+
+      const pin = new THREE.Mesh(miniPinGeo, sageGreenMat);
+      pin.rotation.y = Math.PI / 4;
+      pin.position.set(side * (naveW / 2 + 0.008), 0.052 + naveH + 0.048, bz);
+      group.add(pin);
+
+      if (i < 4) {
+        const win = new THREE.Mesh(sideWinGeo, lancetGlassMat);
+        win.position.set(side * (naveW / 2 + 0.003), 0.052 + naveH * 0.56, bz + 0.0375);
+        group.add(win);
+      }
+    }
+  }
+
+  // Manicured symmetrical tropical hedges along courtyard edges
+  const hedgeGeo = new THREE.BoxGeometry(0.036, 0.028, 0.42);
+  for (const side of [-1, 1]) {
+    const hedge = new THREE.Mesh(hedgeGeo, tropicalFoliageMat);
+    hedge.position.set(side * 0.21, 0.034, 0);
+    group.add(hedge);
+  }
+
+  enableShadows(group);
+  return group;
+}
+

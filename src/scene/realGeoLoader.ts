@@ -160,16 +160,25 @@ export async function loadRealTagumDem(): Promise<RealElevationSampler> {
   };
 }
 
+async function runBatched<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>) {
+  for (let i = 0; i < items.length; i += concurrency) {
+    const slice = items.slice(i, i + concurrency);
+    await Promise.all(slice.map(fn));
+  }
+}
+
 /**
  * Fetches & stitches real satellite imagery (Esri World Imagery) or Carto OSM street map
  * tiles across the entire 4 x 4 km Tagum core, then slices crisp per-tile CanvasTextures
- * aligned accurately to each tile's exact WGS84 bounding box!
+ * aligned accurately to each tile's exact WGS84 bounding box.
+ * Supports progressive sharpening: z=16 (~2.4 m/px, fast initial) -> z=17 (~1.18 m/px, 1024px crisp).
  */
 export async function loadRealCoreBasemapTextures(
   source: 'satellite' | 'osm',
   maxAnisotropy: number,
+  zoom: 16 | 17 = 16,
 ): Promise<Map<string, THREE.CanvasTexture>> {
-  const z = 15; // ~4.7 m/px crisp architectural resolution (~16-25 tiles total for 4x4 km!)
+  const z = zoom;
   const nwBbox = getTileBBox(0, 0);
   const seBbox = getTileBBox(3, 3);
 
@@ -186,27 +195,27 @@ export async function loadRealCoreBasemapTextures(
   mCtx.fillStyle = source === 'satellite' ? '#2c3d2d' : '#dce3e8';
   mCtx.fillRect(0, 0, master.width, master.height);
 
-  // Load slippy tiles in parallel batches
-  const jobs: Array<Promise<void>> = [];
+  const coords: Array<[number, number]> = [];
   for (let ty = minTy; ty <= maxTy; ty++) {
     for (let tx = minTx; tx <= maxTx; tx++) {
-      const url = `/api/geo/tile/${source}/${z}/${tx}/${ty}`;
-      jobs.push(
-        loadImage(url)
-          .then((img) => {
-            mCtx.drawImage(img, (tx - minTx) * tilePx, (ty - minTy) * tilePx, tilePx, tilePx);
-          })
-          .catch(() => {
-            // Leave neutral fill if an individual tile fails
-          }),
-      );
+      coords.push([tx, ty]);
     }
   }
-  await Promise.all(jobs);
+
+  await runBatched(coords, 18, async ([tx, ty]) => {
+    const url = `/api/geo/tile/${source}/${z}/${tx}/${ty}`;
+    try {
+      const img = await loadImage(url);
+      mCtx.drawImage(img, (tx - minTx) * tilePx, (ty - minTy) * tilePx, tilePx, tilePx);
+    } catch {
+      // Leave neutral fill if an individual tile fails
+    }
+  });
 
   const colLetters = ['A', 'B', 'C', 'D'];
   const result = new Map<string, THREE.CanvasTexture>();
   const aniso = Math.max(1, Math.min(maxAnisotropy, 16));
+  const outRes = z >= 17 ? 1024 : 768;
 
   for (let row = 0; row < 4; row++) {
     for (let col = 0; col < 4; col++) {
@@ -219,18 +228,26 @@ export async function loadRealCoreBasemapTextures(
       const ey = (latToTileFloat(b.south, z) - minTy) * tilePx;
 
       const tileCanvas = document.createElement('canvas');
-      tileCanvas.width = 512;
-      tileCanvas.height = 512;
+      tileCanvas.width = outRes;
+      tileCanvas.height = outRes;
       const tCtx = tileCanvas.getContext('2d')!;
-      tCtx.drawImage(master, sx, sy, ex - sx, ey - sy, 0, 0, 512, 512);
+      tCtx.imageSmoothingEnabled = true;
+      tCtx.imageSmoothingQuality = 'high';
+      if (source === 'satellite') {
+        tCtx.filter = 'contrast(1.07) saturate(1.06)';
+      }
+      tCtx.drawImage(master, sx, sy, ex - sx, ey - sy, 0, 0, outRes, outRes);
+      tCtx.filter = 'none';
 
-      // Add very subtle 1px border hairlines to delineate the 1 km spatial tile edge
-      tCtx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+      // Subtle 1px hairline delineating the 1 km spatial tile edge
+      tCtx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
       tCtx.lineWidth = 2;
-      tCtx.strokeRect(1, 1, 510, 510);
+      tCtx.strokeRect(1, 1, outRes - 2, outRes - 2);
 
       const tex = new THREE.CanvasTexture(tileCanvas);
       tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
       tex.anisotropy = aniso;
       tex.needsUpdate = true;
       result.set(id, tex);
@@ -238,6 +255,76 @@ export async function loadRealCoreBasemapTextures(
   }
 
   return result;
+}
+
+/**
+ * Fetches ultra-sharp Zoom 18 (~0.59 m/px, 1536x1536) Esri World Imagery for a single 1 km tile
+ * whenever the user focuses a tile or jumps to a landmark.
+ */
+export async function loadUltraSharpSatelliteTile(
+  col: number,
+  row: number,
+  maxAnisotropy: number,
+): Promise<THREE.CanvasTexture> {
+  const z = 18;
+  const b = getTileBBox(col, row);
+  const minTx = Math.floor(lonToTileFloat(b.west, z));
+  const maxTx = Math.floor(lonToTileFloat(b.east, z));
+  const minTy = Math.floor(latToTileFloat(b.north, z));
+  const maxTy = Math.floor(latToTileFloat(b.south, z));
+
+  const tilePx = 256;
+  const master = document.createElement('canvas');
+  master.width = (maxTx - minTx + 1) * tilePx;
+  master.height = (maxTy - minTy + 1) * tilePx;
+  const mCtx = master.getContext('2d')!;
+  mCtx.fillStyle = '#2c3d2d';
+  mCtx.fillRect(0, 0, master.width, master.height);
+
+  const coords: Array<[number, number]> = [];
+  for (let ty = minTy; ty <= maxTy; ty++) {
+    for (let tx = minTx; tx <= maxTx; tx++) {
+      coords.push([tx, ty]);
+    }
+  }
+
+  await runBatched(coords, 12, async ([tx, ty]) => {
+    const url = `/api/geo/tile/satellite/${z}/${tx}/${ty}`;
+    try {
+      const img = await loadImage(url);
+      mCtx.drawImage(img, (tx - minTx) * tilePx, (ty - minTy) * tilePx, tilePx, tilePx);
+    } catch {
+      // Skip missing sub-tile
+    }
+  });
+
+  const sx = (lonToTileFloat(b.west, z) - minTx) * tilePx;
+  const sy = (latToTileFloat(b.north, z) - minTy) * tilePx;
+  const ex = (lonToTileFloat(b.east, z) - minTx) * tilePx;
+  const ey = (latToTileFloat(b.south, z) - minTy) * tilePx;
+
+  const outRes = 1536;
+  const tileCanvas = document.createElement('canvas');
+  tileCanvas.width = outRes;
+  tileCanvas.height = outRes;
+  const tCtx = tileCanvas.getContext('2d')!;
+  tCtx.imageSmoothingEnabled = true;
+  tCtx.imageSmoothingQuality = 'high';
+  tCtx.filter = 'contrast(1.08) saturate(1.06)';
+  tCtx.drawImage(master, sx, sy, ex - sx, ey - sy, 0, 0, outRes, outRes);
+  tCtx.filter = 'none';
+
+  tCtx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+  tCtx.lineWidth = 2;
+  tCtx.strokeRect(1, 1, outRes - 2, outRes - 2);
+
+  const tex = new THREE.CanvasTexture(tileCanvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = Math.max(1, Math.min(maxAnisotropy, 16));
+  tex.needsUpdate = true;
+  return tex;
 }
 
 /**

@@ -17,10 +17,6 @@ export interface TagumMaterialSet {
   landmarkGold: THREE.MeshPhysicalMaterial;
   landmarkSteel: THREE.MeshStandardMaterial;
   selectionFrame: THREE.MeshStandardMaterial;
-  droneBody: THREE.MeshStandardMaterial;
-  droneAccent: THREE.MeshStandardMaterial;
-  droneRotor: THREE.MeshStandardMaterial;
-  droneFrustum: THREE.MeshBasicMaterial;
   applyMode: (mode: MaterialMode) => void;
   dispose: () => void;
 }
@@ -149,37 +145,6 @@ export function createTagumMaterials(
     polygonOffsetUnits: -3,
   });
 
-  const droneBody = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#1e2631'),
-    roughness: 0.36,
-    metalness: 0.55,
-  });
-
-  const droneAccent = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#f59e0b'),
-    emissive: new THREE.Color('#b45309'),
-    emissiveIntensity: 0.35,
-    roughness: 0.28,
-    metalness: 0.45,
-  });
-
-  const droneRotor = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#cbd5e1'),
-    roughness: 0.2,
-    metalness: 0.6,
-    transparent: true,
-    opacity: 0.45,
-    side: THREE.DoubleSide,
-  });
-
-  const droneFrustum = new THREE.MeshBasicMaterial({
-    color: new THREE.Color('#38bdf8'),
-    transparent: true,
-    opacity: 0.16,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-
   const allMaterials: THREE.Material[] = [
     terrainBase,
     terrainSkirt,
@@ -195,14 +160,11 @@ export function createTagumMaterials(
     landmarkGold,
     landmarkSteel,
     selectionFrame,
-    droneBody,
-    droneAccent,
-    droneRotor,
-    droneFrustum,
   ];
 
   const applyMode = (mode: MaterialMode) => {
     if (mode === 'satelliteOsm') {
+      terrainBase.bumpScale = 0;
       terrainSkirt.color.set('#232b35');
       water.color.set('#1b5e85');
       roadPrimary.color.set('#28303b');
@@ -214,6 +176,7 @@ export function createTagumMaterials(
       landmarkRoofAccent.color.set('#b85535');
       landmarkGlass.color.set('#5c9cc4');
     } else if (mode === 'streetMapOsm') {
+      terrainBase.bumpScale = 0;
       terrainSkirt.color.set('#2d3642');
       water.color.set('#3885b3');
       roadPrimary.color.set('#475569');
@@ -225,6 +188,7 @@ export function createTagumMaterials(
       landmarkRoofAccent.color.set('#c4623c');
       landmarkGlass.color.set('#4c85a8');
     } else if (mode === 'architecturalPla') {
+      terrainBase.bumpScale = 0.015;
       terrainSkirt.color.set('#202832');
       water.color.set('#1f435d');
       roadPrimary.color.set('#535d6a');
@@ -237,6 +201,7 @@ export function createTagumMaterials(
       landmarkGlass.color.set('#4c6e8a');
     } else {
       // LiDAR / Real DEM Hypsometric Analysis
+      terrainBase.bumpScale = 0.006;
       terrainSkirt.color.set('#131b25');
       water.color.set('#0e3a5c');
       roadPrimary.color.set('#1e293b');
@@ -269,10 +234,6 @@ export function createTagumMaterials(
     landmarkGold,
     landmarkSteel,
     selectionFrame,
-    droneBody,
-    droneAccent,
-    droneRotor,
-    droneFrustum,
     applyMode,
     dispose: () => {
       allMaterials.forEach((m) => m.dispose());

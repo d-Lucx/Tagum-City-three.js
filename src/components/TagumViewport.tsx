@@ -6,32 +6,27 @@ import {
   ActiveLandmarkId,
   CAMERA_PRESETS,
   CameraPresetId,
-  DroneTargetId,
-  DRONE_TARGETS,
   MaterialMode,
   PrintScaleSpec,
 } from '../data/tagumData';
-import { buildPhotogrammetryDrone } from '../scene/landmarks';
 import { createTagumMaterials } from '../scene/materials';
 import {
   loadRealCoreBasemapTextures,
   loadRealTagumDem,
+  loadUltraSharpSatelliteTile,
   RealElevationSampler,
   TileOsmPayload,
 } from '../scene/realGeoLoader';
 import { exportTilesToBinaryStl, StlExportResult } from '../scene/stlExporter';
 import { getTagumElevation, setActiveRealDem } from '../scene/terrainMath';
 import { createProceduralTexturePack } from '../scene/textures';
-import {
-  buildCrosshatchWaypoints,
-  buildTagumCityScene,
-  TagumCityRig,
-} from '../scene/tileBuilder';
+import { buildTagumCityScene, TagumCityRig } from '../scene/tileBuilder';
 
 export interface GeoSyncStatus {
   demReady: boolean;
   demRangeLabel: string;
   basemapReady: boolean;
+  satTierLabel?: string;
   error?: string;
 }
 
@@ -52,16 +47,11 @@ interface TagumViewportProps {
   onSelectTile: (tileId: string) => void;
   onHoverTile: (tileId: string | null) => void;
   onGeoStatusChange: (status: GeoSyncStatus) => void;
-  droneActive: boolean;
-  droneTarget: DroneTargetId;
-  droneAltitudeM: number;
 }
 
 const _mouse = new THREE.Vector2();
 const _camGoalPos = new THREE.Vector3();
 const _camGoalTarget = new THREE.Vector3();
-const _dronePos = new THREE.Vector3();
-const _droneNextPos = new THREE.Vector3();
 
 function detectSoftwareWebGL(): boolean {
   try {
@@ -129,9 +119,6 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       onSelectTile,
       onHoverTile,
       onGeoStatusChange,
-      droneActive,
-      droneTarget,
-      droneAltitudeM,
     },
     ref,
   ) {
@@ -147,9 +134,6 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       onSelectTile,
       onHoverTile,
       onGeoStatusChange,
-      droneActive,
-      droneTarget,
-      droneAltitudeM,
     });
     propsRef.current = {
       materialMode,
@@ -160,9 +144,6 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       onSelectTile,
       onHoverTile,
       onGeoStatusChange,
-      droneActive,
-      droneTarget,
-      droneAltitudeM,
     };
 
     const sceneApiRef = useRef<{
@@ -170,7 +151,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       applyMode: (mode: MaterialMode) => void;
       updateBoost: (boost: number) => void;
       setActiveLandmark: (activeId: ActiveLandmarkId | null) => void;
-      updateDronePath: (active: boolean, target: DroneTargetId, altM: number) => void;
+      upgradeTileSatellite: (tileId: string) => void;
       flyTo: (pos: [number, number, number], target: [number, number, number]) => void;
       focusTile: (tileId: string) => void;
       requestRender: () => void;
@@ -240,9 +221,15 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       sceneApiRef.current?.requestRender();
     }, [explodeAmount, selectedTileId]);
 
+    // Automatically upgrade the focused tile (and adjacent seam tile for Gaisano Mall) to ultra-sharp Zoom 18 (~0.59 m/px)
     useEffect(() => {
-      sceneApiRef.current?.updateDronePath(droneActive, droneTarget, droneAltitudeM);
-    }, [droneActive, droneTarget, droneAltitudeM]);
+      const api = sceneApiRef.current;
+      if (!api) return;
+      api.upgradeTileSatellite(selectedTileId);
+      if (activeLandmarkId === 'gaisanoMall') {
+        api.upgradeTileSatellite('B2');
+      }
+    }, [selectedTileId, activeLandmarkId]);
 
     useEffect(() => {
       const container = mountRef.current;
@@ -282,7 +269,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       camera.position.set(24, 22, 28);
 
       const controls = new OrbitControls(camera, renderer.domElement);
-      controls.target.set(-3, 0.5, -2);
+      controls.target.set(-2, 0.4, -1);
       controls.enableDamping = !isSoftwareGl;
       controls.dampingFactor = 0.065;
       controls.maxPolarAngle = Math.PI * 0.475;
@@ -350,83 +337,6 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       bedFloor.position.y = -1.04;
       scene.add(bedFloor);
 
-      // Drone Photogrammetry Group
-      const droneRoot = new THREE.Group();
-      droneRoot.visible = false;
-      const droneModel = buildPhotogrammetryDrone(materials);
-      droneRoot.add(droneModel.group);
-
-      const pathLineMat = new THREE.LineBasicMaterial({
-        color: 0xf59e0b,
-        transparent: true,
-        opacity: 0.9,
-      });
-      let pathLine: THREE.Line | null = null;
-      let droneWaypoints: THREE.Vector3[] = [];
-      let droneSegmentLengths: number[] = [];
-      let droneTotalLength = 1;
-      let droneProgressDist = 0;
-
-      const gcpGroup = new THREE.Group();
-      const gcpGeo = new THREE.CylinderGeometry(0.16, 0.2, 0.07, 12);
-      const gcpMat = new THREE.MeshStandardMaterial({
-        color: 0xf59e0b,
-        emissive: 0xd97706,
-        emissiveIntensity: 0.5,
-        roughness: 0.35,
-      });
-      droneRoot.add(gcpGroup);
-      scene.add(droneRoot);
-
-      const rebuildDronePath = (
-        active: boolean,
-        target: DroneTargetId,
-        altM: number,
-      ) => {
-        droneRoot.visible = active;
-        if (pathLine) {
-          droneRoot.remove(pathLine);
-          pathLine.geometry.dispose();
-          pathLine = null;
-        }
-        while (gcpGroup.children.length > 0) {
-          gcpGroup.remove(gcpGroup.children[0]);
-        }
-
-        droneWaypoints = buildCrosshatchWaypoints(target, altM);
-        droneSegmentLengths = [];
-        droneTotalLength = 0;
-        for (let i = 0; i < droneWaypoints.length - 1; i++) {
-          const len = droneWaypoints[i].distanceTo(droneWaypoints[i + 1]);
-          droneSegmentLengths.push(len);
-          droneTotalLength += len;
-        }
-        const geo = new THREE.BufferGeometry().setFromPoints(droneWaypoints);
-        pathLine = new THREE.Line(geo, pathLineMat);
-        droneRoot.add(pathLine);
-
-        const minX = Math.min(...droneWaypoints.map((w) => w.x));
-        const maxX = Math.max(...droneWaypoints.map((w) => w.x));
-        const minZ = Math.min(...droneWaypoints.map((w) => w.z));
-        const maxZ = Math.max(...droneWaypoints.map((w) => w.z));
-        const cx = (minX + maxX) / 2;
-        const cz = (minZ + maxZ) / 2;
-        const gcpCoords: Array<[number, number]> = [
-          [minX, minZ],
-          [maxX, minZ],
-          [maxX, maxZ],
-          [minX, maxZ],
-          [cx, cz + 1.1],
-        ];
-        for (const [gx, gz] of gcpCoords) {
-          const marker = new THREE.Mesh(gcpGeo, gcpMat);
-          marker.position.set(gx, getTagumElevation(gx, gz) + 0.05, gz);
-          gcpGroup.add(marker);
-        }
-        droneProgressDist = 0;
-        requestRender();
-      };
-
       const applyVisualMode = (mode: MaterialMode) => {
         materials.applyMode(mode);
         cityRig.updateVisualMode(mode);
@@ -488,7 +398,6 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
         const {
           explodeAmount: targetExplode,
           selectedTileId: selId,
-          droneActive: dActive,
           activeLandmarkId: activeLmId,
           verticalBoost: vBoost,
         } = propsRef.current;
@@ -528,9 +437,9 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
           tile.selectionFrame.visible = !activeLmId && (isSelected || isHovered);
 
           // Jump-only landmark materialization: smoothly scale 0 -> 1 ONLY for the active landmark
-          if (tile.landmarkGroup && tile.landmarkId) {
-            const targetReveal = tile.landmarkId === activeLmId ? 1 : 0;
-            const curReveal = landmarkRevealMap.get(tile.info.id) ?? 0;
+          for (const lm of tile.landmarks) {
+            const targetReveal = lm.id === activeLmId ? 1 : 0;
+            const curReveal = landmarkRevealMap.get(lm.id) ?? 0;
             let nextReveal = curReveal;
             if (Math.abs(curReveal - targetReveal) > 0.002) {
               nextReveal = THREE.MathUtils.damp(curReveal, targetReveal, 8.5, dt);
@@ -538,13 +447,13 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
             } else {
               nextReveal = targetReveal;
             }
-            landmarkRevealMap.set(tile.info.id, nextReveal);
+            landmarkRevealMap.set(lm.id, nextReveal);
 
             const isVisible = nextReveal > 0.01;
-            tile.landmarkGroup.visible = isVisible;
+            lm.group.visible = isVisible;
             if (isVisible) {
               const yFactor = 1.0 + (vBoost - 1.0) * 0.18;
-              tile.landmarkGroup.scale.set(nextReveal, nextReveal * yFactor, nextReveal);
+              lm.group.scale.set(nextReveal, nextReveal * yFactor, nextReveal);
             }
           }
         }
@@ -566,44 +475,6 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
             camTransitionActive = false;
           } else {
             stillMoving = true;
-          }
-        }
-
-        if (dActive && droneWaypoints.length > 1) {
-          stillMoving = true;
-          const speedUnitsPerSec = 2.8;
-          droneProgressDist = (droneProgressDist + speedUnitsPerSec * dt) % droneTotalLength;
-
-          let acc = 0;
-          let segIdx = 0;
-          for (let i = 0; i < droneSegmentLengths.length; i++) {
-            if (acc + droneSegmentLengths[i] >= droneProgressDist) {
-              segIdx = i;
-              break;
-            }
-            acc += droneSegmentLengths[i];
-          }
-          const segLen = Math.max(0.001, droneSegmentLengths[segIdx]);
-          const localT = (droneProgressDist - acc) / segLen;
-          const a = droneWaypoints[segIdx];
-          const b = droneWaypoints[segIdx + 1];
-          _dronePos.lerpVectors(a, b, localT);
-          _droneNextPos.copy(b);
-
-          const targetTileId = DRONE_TARGETS[propsRef.current.droneTarget].tileId;
-          const underlyingTile = cityRig.tiles.find((t) => t.info.id === targetTileId);
-          if (underlyingTile) {
-            const tileDx = underlyingTile.group.position.x - underlyingTile.baseX;
-            const tileDz = underlyingTile.group.position.z - underlyingTile.baseZ;
-            const tileDy = underlyingTile.group.position.y;
-            droneRoot.position.set(tileDx, tileDy, tileDz);
-          }
-
-          droneModel.group.position.copy(_dronePos);
-          droneModel.group.lookAt(_droneNextPos.x, _dronePos.y, _droneNextPos.z);
-
-          for (const rotor of droneModel.rotors) {
-            rotor.rotation.y += dt * 28;
           }
         }
 
@@ -728,6 +599,45 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       };
       window.addEventListener('resize', onResize);
 
+      // Track per-tile Zoom 18 ultra-sharp satellite requests so each focused tile fetches once
+      const z18Requested = new Set<string>();
+      let demDone = false;
+      let demLabel = 'Syncing DEM...';
+      let baseDone = false;
+      let satTierLabel = 'Sat z16';
+
+      const emitStatus = (error?: string) => {
+        if (disposed) return;
+        propsRef.current.onGeoStatusChange({
+          demReady: demDone,
+          demRangeLabel: demLabel,
+          basemapReady: baseDone,
+          satTierLabel,
+          error,
+        });
+      };
+
+      const upgradeTileSatellite = (tileId: string) => {
+        if (disposed || z18Requested.has(tileId)) return;
+        const t = cityRig.tiles.find((entry) => entry.info.id === tileId);
+        if (!t) return;
+        z18Requested.add(tileId);
+        loadUltraSharpSatelliteTile(t.info.col, t.info.row, maxAniso)
+          .then((sharpTex) => {
+            if (disposed) {
+              sharpTex.dispose();
+              return;
+            }
+            cityRig.applySharpSatelliteToTile(tileId, sharpTex, propsRef.current.materialMode);
+            satTierLabel = 'Sat z18 HD';
+            emitStatus();
+            requestRender();
+          })
+          .catch(() => {
+            z18Requested.delete(tileId);
+          });
+      };
+
       sceneApiRef.current = {
         cityRig,
         applyMode: applyVisualMode,
@@ -739,7 +649,7 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
           cityRig.setActiveLandmark(activeId);
           requestRender();
         },
-        updateDronePath: rebuildDronePath,
+        upgradeTileSatellite,
         flyTo: (pos, target) => {
           _camGoalPos.set(pos[0], pos[1], pos[2]);
           _camGoalTarget.set(target[0], target[1], target[2]);
@@ -749,10 +659,32 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
         focusTile: (tileId) => {
           const t = cityRig.tiles.find((entry) => entry.info.id === tileId);
           if (!t) return;
-          const tx = t.group.position.x;
-          const tz = t.group.position.z;
-          _camGoalTarget.set(tx, 0.7, tz);
-          _camGoalPos.set(tx + 8.5, 8.8, tz + 9.5);
+          const spreadGap = propsRef.current.explodeAmount * 2.1;
+          const tx = t.baseX + (t.info.col - 1.5) * spreadGap;
+          const tz = t.baseZ + (t.info.row - 1.5) * spreadGap;
+          const groundY = getTagumElevation(t.baseX, t.baseZ);
+          const targetY = groundY + 0.42;
+
+          _camGoalTarget.set(tx, targetY, tz);
+
+          // Preserve user's viewing azimuth while zooming in comfortably to inspect the 1 km x 1 km tile
+          const dx = camera.position.x - controls.target.x;
+          const dy = camera.position.y - controls.target.y;
+          const dz = camera.position.z - controls.target.z;
+          const horizDist = Math.hypot(dx, dz);
+
+          if (horizDist < 0.6) {
+            // Preserve overhead Top Map framing centered on the selected tile
+            const topHeight = THREE.MathUtils.clamp(dy, 11.5, 19.0);
+            _camGoalPos.set(tx, targetY + topHeight, tz + 0.01);
+          } else {
+            const dirX = dx / horizDist;
+            const dirZ = dz / horizDist;
+            const goalHoriz = THREE.MathUtils.clamp(horizDist, 5.2, 11.2);
+            const goalHeight = THREE.MathUtils.clamp(dy, 4.8, 8.8);
+            _camGoalPos.set(tx + dirX * goalHoriz, targetY + goalHeight, tz + dirZ * goalHoriz);
+          }
+
           camTransitionActive = true;
           requestRender();
         },
@@ -762,28 +694,9 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
       applyVisualMode(propsRef.current.materialMode);
       cityRig.setActiveLandmark(propsRef.current.activeLandmarkId);
       cityRig.updateVerticalBoost(propsRef.current.verticalBoost);
-      rebuildDronePath(
-        propsRef.current.droneActive,
-        propsRef.current.droneTarget,
-        propsRef.current.droneAltitudeM,
-      );
       requestRender();
 
-      // Stream live AWS Terrarium DEM elevation + real Esri Satellite & Carto OSM basemap tiles
-      let demDone = false;
-      let demLabel = 'Syncing DEM...';
-      let baseDone = false;
-
-      const emitStatus = (error?: string) => {
-        if (disposed) return;
-        propsRef.current.onGeoStatusChange({
-          demReady: demDone,
-          demRangeLabel: demLabel,
-          basemapReady: baseDone,
-          error,
-        });
-      };
-
+      // Stream live AWS Terrarium DEM elevation
       loadRealTagumDem()
         .then((sampler: RealElevationSampler) => {
           if (disposed) return;
@@ -800,16 +713,43 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
           emitStatus('Real DEM tiles unreachable; using topographic fallback');
         });
 
+      // Progressive Crystal-Clear Satellite Pipeline:
+      // Pass 1: Fast Zoom 16 (~2.4 m/px) + Street Map OSM -> immediate sharp render
+      // Pass 2: Full-core Zoom 17 (~1.18 m/px, 1024x1024 per tile) -> automatic background sharpen
+      // Pass 3: Selected / Jumped tile Zoom 18 (~0.59 m/px, 1536x1536) -> ultra-crisp close-up imagery
       Promise.all([
-        loadRealCoreBasemapTextures('satellite', maxAniso),
-        loadRealCoreBasemapTextures('osm', maxAniso),
+        loadRealCoreBasemapTextures('satellite', maxAniso, 16),
+        loadRealCoreBasemapTextures('osm', maxAniso, 16),
       ])
         .then(([satMap, osmMap]) => {
-          if (disposed) return;
-          cityRig.applyBasemapTextures(satMap, osmMap, propsRef.current.materialMode);
+          if (disposed) {
+            satMap.forEach((t) => t.dispose());
+            osmMap.forEach((t) => t.dispose());
+            return;
+          }
+          cityRig.applyBasemapTextures(satMap, osmMap, propsRef.current.materialMode, 16);
           baseDone = true;
           emitStatus();
           requestRender();
+
+          // Kick off focused tile Zoom 18 upgrade immediately + full-core Zoom 17 upgrade in background
+          upgradeTileSatellite(propsRef.current.selectedTileId);
+          loadRealCoreBasemapTextures('satellite', maxAniso, 17)
+            .then((sat17Map) => {
+              if (disposed) {
+                sat17Map.forEach((t) => t.dispose());
+                return;
+              }
+              cityRig.applyBasemapTextures(sat17Map, null, propsRef.current.materialMode, 17);
+              if (satTierLabel === 'Sat z16') {
+                satTierLabel = 'Sat z17 HD';
+                emitStatus();
+              }
+              requestRender();
+            })
+            .catch(() => {
+              // Keep z16 satellite gracefully if z17 fails
+            });
         })
         .catch(() => {
           if (disposed) return;
@@ -834,10 +774,6 @@ export const TagumViewport = forwardRef<TagumViewportHandle, TagumViewportProps>
         renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
         renderer.domElement.removeEventListener('webglcontextrestored', onContextRestored);
 
-        if (pathLine) pathLine.geometry.dispose();
-        pathLineMat.dispose();
-        gcpGeo.dispose();
-        gcpMat.dispose();
         bedFloorGeo.dispose();
         bedFloorMat.dispose();
         envTexture.dispose();

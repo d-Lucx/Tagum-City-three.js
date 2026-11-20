@@ -9,7 +9,7 @@ import {
   TagumTileInfo,
 } from '../data/tagumData';
 
-type GuideSection = 'scales' | 'datasets' | 'pipeline' | 'caap';
+type GuideSection = 'scales' | 'datasets' | 'pipeline';
 
 interface FieldGuideModalProps {
   open: boolean;
@@ -92,7 +92,6 @@ export function FieldGuideModal({
               { id: 'scales', label: '01. Print Scales & Tiling' },
               { id: 'datasets', label: '02. Geospatial Datasets' },
               { id: 'pipeline', label: '03. Workflows & Python Script' },
-              { id: 'caap', label: '04. Drone Survey & CAAP Rules' },
             ] as const
           ).map((tab) => (
             <button
@@ -305,98 +304,6 @@ export function FieldGuideModal({
                 <pre className="p-4 text-xs font-mono-tabular text-slate-200 bg-[#0b0f16] overflow-x-auto leading-relaxed">
                   {pythonScript}
                 </pre>
-              </div>
-            </div>
-          )}
-
-          {section === 'caap' && (
-            <div className="space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-white">
-                    Photogrammetry Capture Parameters
-                  </h3>
-                  <ul className="space-y-1.5 list-disc pl-4 text-slate-300">
-                    <li>
-                      <strong className="text-white">Crosshatch (Double-Grid) Oblique:</strong> Fly
-                      perpendicular passes tilted ~45° to capture vertical facades and cut Z-axis
-                      vertical error by 5× versus nadir-only flights.
-                    </li>
-                    <li>
-                      <strong className="text-white">Overlap & Speed:</strong> 80% frontal / 70–80%
-                      side overlap at 60–120 m AGL (1–3 cm/px GSD). Slow rolling-shutter drones
-                      (DJI Mini series) to 1.5–2.0 m/s under overcast skies.
-                    </li>
-                    <li>
-                      <strong className="text-white">Georeferencing:</strong> Pair RTK/PPK with 5–8
-                      Ground Control Points (GCPs) + 2–4 independent checkpoints for 1–3 cm accuracy.
-                    </li>
-                    <li>
-                      <strong className="text-white">Reconstruction:</strong> OpenDroneMap / WebODM
-                      (free self-hosted), Agisoft Metashape Standard ($179), or RealityScan (free
-                      under $1M revenue). Decimate and repair manifold edges in Blender before
-                      merging into your city tile.
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-white">
-                    CAAP PCAR Part 11 Compliance in Tagum City
-                  </h3>
-                  <p className="text-slate-300">
-                    Tagum City sits ~<strong className="text-white">40.0 km</strong> straight-line
-                    from Davao International Airport (DVO)—well outside CAAP&apos;s 10 km airport
-                    exclusion zone. However, urban flights over populated streets, schools, markets,
-                    or civic landmarks strictly require a CAAP Special Flight Permit. Violations
-                    carry <strong className="text-amber-300">₱20,000–₱100,000</strong> fines per
-                    violation plus Data Privacy Act (RA 10173) liability for filming private yards.
-                  </p>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto border border-white/10 rounded-lg">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-white/10 bg-white/[0.03] text-slate-400">
-                      <th className="py-2.5 px-3 font-medium">Flight Category</th>
-                      <th className="py-2.5 px-3 font-medium">Weight / Purpose</th>
-                      <th className="py-2.5 px-3 font-medium">Required CAAP Credentials</th>
-                      <th className="py-2.5 px-3 font-medium">
-                        Populated Area / &gt;400 ft / Night
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/8">
-                    <tr>
-                      <td className="py-2.5 px-3 font-semibold text-white">Recreational</td>
-                      <td className="py-2.5 px-3">Under 7 kg, non-commercial</td>
-                      <td className="py-2.5 px-3">None (VLOS, daylight, &lt;400 ft, 30 m buffer)</td>
-                      <td className="py-2.5 px-3 text-amber-300">
-                        Prohibited without Special Flight Permit
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-2.5 px-3 font-semibold text-white">Large Recreational</td>
-                      <td className="py-2.5 px-3">7 kg or heavier</td>
-                      <td className="py-2.5 px-3">
-                        RPAS Registration + RPA Controller Certificate
-                      </td>
-                      <td className="py-2.5 px-3 text-amber-300">Special Flight Permit required</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2.5 px-3 font-semibold text-white">Commercial Survey</td>
-                      <td className="py-2.5 px-3">Any weight (even sub-250 g)</td>
-                      <td className="py-2.5 px-3">
-                        RPAS Registration (₱1,500 + VAT) + Controller Cert (₱3,360) + RPAS Operator
-                        Cert (ROC)
-                      </td>
-                      <td className="py-2.5 px-3 text-amber-300">
-                        Mandatory Special Flight Permit + LGU coordination
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
               </div>
             </div>
           )}
